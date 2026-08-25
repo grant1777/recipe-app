@@ -123,6 +123,47 @@ button {
   gap: 10px;
 }
 
+.auth-panel .account-status {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 10px minmax(0, 1fr);
+  padding-bottom: 12px;
+}
+
+.account-status > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-status span {
+  color: #d7cfc4;
+  font-size: 0.78rem;
+}
+
+.status-dot {
+  background: #d6a348;
+  border-radius: 50%;
+  height: 10px;
+  width: 10px;
+}
+
+.account-status[data-state="signed-in"] .status-dot {
+  background: #62c98c;
+}
+
+.account-status[data-state="signed-out"] .status-dot,
+.account-status[data-state="error"] .status-dot {
+  background: #ef7d7d;
+}
+
+.auth-panel [disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .auth-panel input {
   background: rgba(255, 255, 255, 0.95);
   border: 0;

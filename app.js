@@ -1,7 +1,5 @@
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const meals = ["Breakfast", "Lunch", "Dinner", "Snack"];
-const storageKey = "household-recipe-planner-v2";
-const legacyStorageKey = "household-recipe-planner";
 const firebaseConfig = window.firebaseConfig;
 
 const starterRecipes = [
@@ -49,14 +47,19 @@ const authEls = {
   email: document.getElementById("auth-email"),
   password: document.getElementById("auth-password"),
   accountEmail: document.getElementById("account-email"),
+  accountStatus: document.getElementById("account-status"),
+  stateTitle: document.getElementById("auth-state-title"),
+  stateDetail: document.getElementById("auth-state-detail"),
   message: document.getElementById("auth-message"),
   syncStatus: document.getElementById("sync-status")
 };
 
 let selectedWeekStart = getWeekStart(new Date());
-let state = loadLocalState();
+let state = createSignedOutState();
 let cloud = null;
-let saveTimer = null;
+let authResolved = false;
+let cloudDataLoaded = false;
+let unsubscribeCloudState = null;
 
 function blankPlan() {
   return Object.fromEntries(days.map((day) => [day, Object.fromEntries(meals.map((meal) => [meal, ""]))]));
@@ -65,6 +68,16 @@ function blankPlan() {
 function createInitialState() {
   return {
     recipes: starterRecipes,
+    mappings: {},
+    plans: {
+      [dateKey(selectedWeekStart)]: blankPlan()
+    }
+  };
+}
+
+function createSignedOutState() {
+  return {
+    recipes: [],
     mappings: {},
     plans: {
       [dateKey(selectedWeekStart)]: blankPlan()
@@ -90,20 +103,12 @@ function normalizeState(value) {
   return normalized;
 }
 
-function loadLocalState() {
-  const saved = localStorage.getItem(storageKey) || localStorage.getItem(legacyStorageKey);
-  if (!saved) return createInitialState();
-
-  try {
-    return normalizeState(JSON.parse(saved));
-  } catch {
-    return createInitialState();
-  }
-}
-
 async function initializeCloud() {
   if (!firebaseConfig) {
-    setAuthMessage("Local mode. Add Firebase config to enable household logins.");
+    authResolved = true;
+    setAccountStatus("error", "Firebase unavailable", "Configuration is missing");
+    setAuthMessage("Add Firebase config before using the app.");
+    updateDataControls();
     return;
   }
 
@@ -115,12 +120,14 @@ async function initializeCloud() {
     const auth = authModule.getAuth(app);
     const db = firestoreModule.getFirestore(app);
 
+    await authModule.setPersistence(auth, authModule.browserLocalPersistence);
+
     cloud = {
       auth,
       db,
       doc: firestoreModule.doc,
-      getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
+      onSnapshot: firestoreModule.onSnapshot,
       onAuthStateChanged: authModule.onAuthStateChanged,
       signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
       createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
@@ -131,18 +138,27 @@ async function initializeCloud() {
     };
 
     cloud.onAuthStateChanged(auth, handleAuthChange);
-    checkGitHubRedirectResult();
-    setAuthMessage("Firebase ready.");
+    await checkGitHubRedirectResult();
   } catch (error) {
+    authResolved = true;
+    setAccountStatus("error", "Firebase connection failed", "Data cannot sync");
     setAuthMessage(`Firebase did not load: ${error.message}`);
+    updateDataControls();
   }
 }
 
 async function handleAuthChange(user) {
+  authResolved = true;
+  cloudDataLoaded = false;
+  unsubscribeCloudState?.();
+  unsubscribeCloudState = null;
+
   if (!user) {
+    state = createSignedOutState();
     authEls.signedOut.hidden = false;
     authEls.signedIn.hidden = true;
-    authEls.syncStatus.textContent = "Local";
+    setAccountStatus("signed-out", "Not signed in", "Cloud sync is off");
+    setAuthMessage("Sign in to load and save your Firebase data.");
     renderAll();
     return;
   }
@@ -151,79 +167,77 @@ async function handleAuthChange(user) {
   authEls.signedIn.hidden = false;
   authEls.accountEmail.textContent = user.email || user.displayName || "GitHub account";
   authEls.syncStatus.textContent = "Loading";
+  setAccountStatus("checking", "Signed in", "Loading Firebase data...");
+  setAuthMessage("");
+  updateDataControls();
 
   const ref = cloud.doc(cloud.db, "users", user.uid);
-  try {
-    const localState = normalizeState(state);
-    const snapshot = await cloud.getDoc(ref);
-    if (snapshot.exists()) {
-      state = mergeCloudAndLocalState(snapshot.data(), localState);
-      await cloud.setDoc(ref, state);
-    } else {
-      await cloud.setDoc(ref, state);
+  let creatingDocument = false;
+  unsubscribeCloudState = cloud.onSnapshot(ref, { includeMetadataChanges: true }, async (snapshot) => {
+    if (!snapshot.exists()) {
+      if (creatingDocument) return;
+      creatingDocument = true;
+      state = createInitialState();
+      authEls.syncStatus.textContent = "Creating database";
+      try {
+        await cloud.setDoc(ref, state);
+      } catch (error) {
+        handleSyncError("Could not create your Firestore data", error);
+      }
+      return;
     }
 
-    saveLocalState();
-    authEls.syncStatus.textContent = "Synced";
-    setAuthMessage("Signed in. Local data synced to Firebase.");
-  } catch (error) {
-    authEls.syncStatus.textContent = "Sync error";
-    setAuthMessage(`Firestore sync failed: ${error.message}`);
-  }
+    state = normalizeState(snapshot.data());
+    cloudDataLoaded = true;
+    const syncState = snapshot.metadata.hasPendingWrites ? "saving" : snapshot.metadata.fromCache ? "connecting" : "synced";
+    authEls.syncStatus.textContent = syncState === "saving" ? "Saving" : syncState === "connecting" ? "Connecting" : "Synced";
+    setAccountStatus(
+      syncState === "synced" ? "signed-in" : "checking",
+      "Signed in",
+      syncState === "saving" ? "Saving to Firebase..." : syncState === "connecting" ? "Waiting for Firebase..." : "Firebase synced"
+    );
+    setAuthMessage(
+      syncState === "saving" ? "Saving changes..." : syncState === "connecting" ? "Signed in. Waiting for the Firebase server." : "Your data is synced with Firebase."
+    );
+    renderAll();
+  }, (error) => {
+    handleSyncError("Firestore sync failed", error);
+  });
+}
 
-  renderAll();
+function handleSyncError(prefix, error) {
+    authEls.syncStatus.textContent = "Sync error";
+    setAccountStatus("error", "Sync error", "Firebase could not save data");
+    setAuthMessage(`${prefix}: ${error.message}`);
+    updateDataControls();
 }
 
 function saveState() {
-  saveLocalState();
-  if (!cloud?.auth.currentUser) return;
+  if (!canWriteCloudData()) {
+    setAuthMessage("Sign in and wait for Firebase to finish loading before making changes.");
+    return;
+  }
 
-  clearTimeout(saveTimer);
   authEls.syncStatus.textContent = "Saving";
-  saveTimer = setTimeout(() => {
-    saveCloudState("Firestore save failed");
-  }, 350);
+  setAccountStatus("checking", "Signed in", "Saving to Firebase...");
+  void saveCloudState("Firestore save failed");
 }
 
 async function saveCloudState(errorPrefix = "Firestore save failed") {
-  if (!cloud?.auth.currentUser) return false;
+  if (!canWriteCloudData()) return false;
 
   try {
     const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
     await cloud.setDoc(ref, state);
-    authEls.syncStatus.textContent = "Synced";
     return true;
   } catch (error) {
-    authEls.syncStatus.textContent = "Sync error";
-    setAuthMessage(`${errorPrefix}: ${error.message}`);
+    handleSyncError(errorPrefix, error);
     return false;
   }
 }
 
-function mergeCloudAndLocalState(cloudData, localData) {
-  const cloudState = normalizeState(cloudData);
-  const localState = normalizeState(localData);
-  const recipesById = new Map();
-
-  [...cloudState.recipes, ...localState.recipes].forEach((recipe) => {
-    if (recipe?.id) recipesById.set(recipe.id, recipe);
-  });
-
-  return {
-    recipes: [...recipesById.values()],
-    plans: {
-      ...cloudState.plans,
-      ...localState.plans
-    },
-    mappings: {
-      ...cloudState.mappings,
-      ...localState.mappings
-    }
-  };
-}
-
-function saveLocalState() {
-  localStorage.setItem(storageKey, JSON.stringify(state));
+function canWriteCloudData() {
+  return Boolean(cloud?.auth.currentUser && cloudDataLoaded);
 }
 
 function getCurrentPlan() {
@@ -285,6 +299,10 @@ function renderPlanner() {
 
   grid.querySelectorAll("select").forEach((select) => {
     select.addEventListener("change", () => {
+      if (!requireCloudWrite()) {
+        renderAll();
+        return;
+      }
       getCurrentPlan()[select.dataset.day][select.dataset.meal] = select.value;
       saveState();
       renderAll();
@@ -353,6 +371,7 @@ function renderRecipes() {
 
   list.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!requireCloudWrite()) return;
       const id = button.dataset.delete;
       state.recipes = state.recipes.filter((recipe) => recipe.id !== id);
       Object.values(state.plans).forEach((plan) => {
@@ -555,6 +574,7 @@ function renderSavedMappings() {
 
   list.querySelectorAll("[data-delete-mapping]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!requireCloudWrite()) return;
       delete state.mappings[button.dataset.deleteMapping];
       saveState();
       renderAll();
@@ -586,11 +606,13 @@ function renderAll() {
   renderWalmartMappings();
   renderMacros();
   renderPlannedCount();
+  updateDataControls();
 }
 
 function setupForms() {
   document.getElementById("recipe-form").addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!requireCloudWrite()) return;
     const ingredients = document
       .getElementById("recipe-ingredients")
       .value.split("\n")
@@ -620,6 +642,7 @@ function setupForms() {
 
   document.getElementById("walmart-map-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!requireCloudWrite()) return;
     const ingredient = document.getElementById("mapping-ingredient").value.trim();
     const product = document.getElementById("mapping-product").value.trim();
     const url = document.getElementById("mapping-url").value.trim();
@@ -627,21 +650,16 @@ function setupForms() {
 
     state.mappings[key] = { key, ingredient, product, url };
     event.target.reset();
-    saveLocalState();
     renderAll();
 
-    if (!cloud?.auth.currentUser) {
-      setAuthMessage("Mapping saved locally. Sign in to sync it to Firebase.");
-      return;
-    }
-
-    clearTimeout(saveTimer);
     authEls.syncStatus.textContent = "Saving";
+    setAccountStatus("checking", "Signed in", "Saving to Firebase...");
     const saved = await saveCloudState("Mapping save failed");
     if (saved) setAuthMessage("Mapping saved to Firebase.");
   });
 
   document.getElementById("clear-week").addEventListener("click", () => {
+    if (!requireCloudWrite()) return;
     state.plans[dateKey(selectedWeekStart)] = blankPlan();
     saveState();
     renderAll();
@@ -689,7 +707,6 @@ function setupAuth() {
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
-    setAuthMessage("Signed out. Local changes stay on this device.");
   });
 }
 
@@ -768,7 +785,6 @@ function authErrorMessage(error) {
 function changeWeek(daysToMove) {
   selectedWeekStart = addDays(selectedWeekStart, daysToMove);
   getCurrentPlan();
-  saveLocalState();
   renderAll();
 }
 
@@ -807,6 +823,39 @@ function formatShortDate(date) {
 
 function setAuthMessage(message) {
   authEls.message.textContent = message;
+}
+
+function setAccountStatus(stateName, title, detail) {
+  authEls.accountStatus.dataset.state = stateName;
+  authEls.stateTitle.textContent = title;
+  authEls.stateDetail.textContent = detail;
+}
+
+function requireCloudWrite() {
+  if (canWriteCloudData()) return true;
+  setAuthMessage(authResolved ? "Sign in and wait for Firebase to finish loading before making changes." : "Checking your Firebase sign-in...");
+  return false;
+}
+
+function updateDataControls() {
+  const disabled = !canWriteCloudData();
+  const selectors = [
+    "#week-grid select",
+    "#clear-week",
+    "#recipe-form input",
+    "#recipe-form select",
+    "#recipe-form textarea",
+    "#recipe-form button",
+    "#walmart-map-form input",
+    "#walmart-map-form button",
+    "[data-delete]",
+    "[data-delete-mapping]",
+    "[data-fill-mapping]"
+  ];
+
+  document.querySelectorAll(selectors.join(",")).forEach((element) => {
+    element.disabled = disabled;
+  });
 }
 
 function findMapping(ingredientName) {

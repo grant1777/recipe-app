@@ -25,8 +25,14 @@
           <span id="planned-count">0 meals planned</span>
         </div>
         <section class="auth-panel" aria-label="Account">
+          <div class="account-status" id="account-status" data-state="checking" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div>
+              <strong id="auth-state-title">Checking sign-in...</strong>
+              <span id="auth-state-detail">Connecting to Firebase</span>
+            </div>
+          </div>
           <div id="signed-out-panel">
-            <strong>Account</strong>
             <input id="auth-email" autocomplete="email" placeholder="Email" type="email" />
             <input id="auth-password" autocomplete="current-password" placeholder="Password" type="password" />
             <div class="auth-actions">
@@ -36,7 +42,7 @@
             <button class="light-button full-button" id="sign-in-github" type="button">Sign in with GitHub</button>
           </div>
           <div id="signed-in-panel" hidden>
-            <strong id="account-email">Signed in</strong>
+            <span id="account-email">Signed in</span>
             <span id="sync-status">Synced</span>
             <button class="light-button" id="sign-out" type="button">Sign out</button>
           </div>

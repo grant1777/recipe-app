@@ -4,7 +4,7 @@ A static recipe and meal planning app that can run from GitHub Pages.
 
 ## Local use
 
-Open `index.html` in a browser. Without Firebase configured, data saves to the browser on that device.
+Run the app through a local web server, such as `python -m http.server 8000`, then open `http://localhost:8000`. Firebase authentication redirects do not work when `index.html` is opened as a `file://` URL.
 
 ## GitHub Pages
 
@@ -13,9 +13,9 @@ Open `index.html` in a browser. Without Firebase configured, data saves to the b
 3. Set the source to the `main` branch and root folder.
 4. Open the GitHub Pages URL after it finishes deploying.
 
-## Optional login and sync
+## Login and sync
 
-GitHub Pages cannot store private user data by itself, so the app is ready for Firebase Authentication and Firestore.
+The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in before recipes, plans, or Walmart mappings can be changed.
 
 1. Create a Firebase project.
 2. Enable **Authentication > Email/Password** and/or **Authentication > GitHub**.
