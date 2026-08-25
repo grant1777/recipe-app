@@ -133,7 +133,7 @@ async function initializeCloud() {
       createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
       GithubAuthProvider: authModule.GithubAuthProvider,
       getRedirectResult: authModule.getRedirectResult,
-      signInWithRedirect: authModule.signInWithRedirect,
+      signInWithPopup: authModule.signInWithPopup,
       signOut: authModule.signOut
     };
 
@@ -748,9 +748,18 @@ async function authenticateWithGitHub() {
   }
 
   try {
+    setAccountStatus("checking", "Signing in", "Complete GitHub sign-in in the popup");
+    setAuthMessage("Waiting for GitHub...");
     const provider = new cloud.GithubAuthProvider();
-    await cloud.signInWithRedirect(cloud.auth, provider);
+    provider.setCustomParameters({ allow_signup: "true" });
+    const result = await cloud.signInWithPopup(cloud.auth, provider);
+    if (result.user) {
+      setAuthMessage("GitHub sign-in complete. Loading your Firebase data...");
+    }
   } catch (error) {
+    if (!cloud.auth.currentUser) {
+      setAccountStatus("signed-out", "Not signed in", "Cloud sync is off");
+    }
     setAuthMessage(authErrorMessage(error));
   }
 }
@@ -776,7 +785,15 @@ function authErrorMessage(error) {
   }
 
   if (error.code === "auth/popup-closed-by-user") {
-    return "The GitHub sign-in popup closed before it finished.";
+    return "GitHub sign-in was not completed. Allow popups for this site, then try again.";
+  }
+
+  if (error.code === "auth/popup-blocked") {
+    return "Your browser blocked the GitHub sign-in window. Allow popups for this site, then try again.";
+  }
+
+  if (error.code === "auth/account-exists-with-different-credential") {
+    return "This email already has an account using another sign-in method. Sign in with that method first.";
   }
 
   return error.message;
