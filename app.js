@@ -44,6 +44,10 @@ const starterRecipes = [
 const authEls = {
   appShell: document.getElementById("app-shell"),
   signedOut: document.getElementById("signed-out-panel"),
+  householdPanel: document.getElementById("household-panel"),
+  householdAccount: document.getElementById("household-account"),
+  householdMessage: document.getElementById("household-message"),
+  householdCode: document.getElementById("household-code"),
   signedIn: document.getElementById("signed-in-panel"),
   githubButton: document.getElementById("sign-in-github"),
   gateStatus: document.getElementById("gate-status"),
@@ -62,6 +66,8 @@ let cloud = null;
 let authResolved = false;
 let cloudDataLoaded = false;
 let unsubscribeCloudState = null;
+let currentHouseholdId = null;
+let currentInviteCode = null;
 
 function blankPlan() {
   return Object.fromEntries(days.map((day) => [day, Object.fromEntries(meals.map((meal) => [meal, ""]))]));
@@ -128,6 +134,7 @@ async function initializeCloud() {
       auth,
       db,
       doc: firestoreModule.doc,
+      getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
       onSnapshot: firestoreModule.onSnapshot,
       onAuthStateChanged: authModule.onAuthStateChanged,
@@ -150,12 +157,15 @@ async function initializeCloud() {
 async function handleAuthChange(user) {
   authResolved = true;
   cloudDataLoaded = false;
+  currentHouseholdId = null;
+  currentInviteCode = null;
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
 
   if (!user) {
     state = createSignedOutState();
     authEls.signedOut.hidden = false;
+    authEls.householdPanel.hidden = true;
     authEls.appShell.hidden = true;
     authEls.signedIn.hidden = true;
     authEls.githubButton.disabled = false;
@@ -166,45 +176,76 @@ async function handleAuthChange(user) {
   }
 
   authEls.signedOut.hidden = true;
-  authEls.appShell.hidden = false;
-  authEls.signedIn.hidden = false;
+  authEls.householdPanel.hidden = true;
+  authEls.appShell.hidden = true;
+  authEls.signedIn.hidden = true;
   authEls.accountEmail.textContent = user.email || user.displayName || "GitHub account";
-  authEls.syncStatus.textContent = "Loading";
-  setAccountStatus("checking", "Signed in", "Loading Firebase data...");
+  setAccountStatus("checking", "Signed in", "Finding your household...");
   setAuthMessage("");
-  updateDataControls();
 
-  const ref = cloud.doc(cloud.db, "users", user.uid);
-  let creatingDocument = false;
-  unsubscribeCloudState = cloud.onSnapshot(ref, { includeMetadataChanges: true }, async (snapshot) => {
-    if (!snapshot.exists()) {
-      if (creatingDocument) return;
-      creatingDocument = true;
-      state = createInitialState();
-      authEls.syncStatus.textContent = "Creating database";
-      try {
-        await cloud.setDoc(ref, state);
-      } catch (error) {
-        handleSyncError("Could not create your Firestore data", error);
-      }
+  try {
+    const userRef = cloud.doc(cloud.db, "users", user.uid);
+    const userSnapshot = await cloud.getDoc(userRef);
+    const householdId = userSnapshot.data()?.householdId;
+    if (householdId) {
+      subscribeToHousehold(householdId);
       return;
     }
 
-    state = normalizeState(snapshot.data());
+    showHouseholdSetup(user);
+  } catch (error) {
+    handleSyncError("Could not load your household membership", error);
+  }
+}
+
+function showHouseholdSetup(user) {
+  authEls.householdAccount.textContent = `Signed in as ${user.email || user.displayName || "GitHub account"}. Create a household or join with an invite code.`;
+  authEls.householdPanel.hidden = false;
+  authEls.appShell.hidden = true;
+  authEls.signedIn.hidden = true;
+  setHouseholdControlsDisabled(false);
+  setHouseholdMessage("");
+}
+
+function subscribeToHousehold(householdId) {
+  currentHouseholdId = householdId;
+  authEls.householdPanel.hidden = true;
+  authEls.appShell.hidden = true;
+  authEls.syncStatus.textContent = "Loading household";
+
+  const ref = cloud.doc(cloud.db, "households", householdId);
+  unsubscribeCloudState = cloud.onSnapshot(ref, { includeMetadataChanges: true }, (snapshot) => {
+    if (!snapshot.exists()) {
+      handleSyncError("The shared household no longer exists", new Error("Ask the household owner for a new invite."));
+      return;
+    }
+
+    const household = snapshot.data();
+    state = normalizeState(household);
+    currentInviteCode = `${householdId}.${household.inviteToken}`;
+    authEls.householdCode.textContent = currentInviteCode;
     cloudDataLoaded = true;
+    authEls.appShell.hidden = false;
+    authEls.signedIn.hidden = false;
+
     const syncState = snapshot.metadata.hasPendingWrites ? "saving" : snapshot.metadata.fromCache ? "connecting" : "synced";
     authEls.syncStatus.textContent = syncState === "saving" ? "Saving" : syncState === "connecting" ? "Connecting" : "Synced";
     setAccountStatus(
       syncState === "synced" ? "signed-in" : "checking",
-      "Signed in",
+      "Household connected",
       syncState === "saving" ? "Saving to Firebase..." : syncState === "connecting" ? "Waiting for Firebase..." : "Firebase synced"
     );
     setAuthMessage(
-      syncState === "saving" ? "Saving changes..." : syncState === "connecting" ? "Signed in. Waiting for the Firebase server." : "Your data is synced with Firebase."
+      syncState === "saving" ? "Saving household changes..." : syncState === "connecting" ? "Waiting for the Firebase server." : "Shared household data is synced."
     );
     renderAll();
   }, (error) => {
-    handleSyncError("Firestore sync failed", error);
+    cloudDataLoaded = false;
+    authEls.appShell.hidden = true;
+    authEls.householdPanel.hidden = false;
+    setHouseholdControlsDisabled(false);
+    setHouseholdMessage(`Household sync failed: ${error.message}`);
+    handleSyncError("Household sync failed", error);
   });
 }
 
@@ -230,8 +271,8 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
   if (!canWriteCloudData()) return false;
 
   try {
-    const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
-    await cloud.setDoc(ref, state);
+    const ref = cloud.doc(cloud.db, "households", currentHouseholdId);
+    await cloud.setDoc(ref, state, { merge: true });
     return true;
   } catch (error) {
     handleSyncError(errorPrefix, error);
@@ -240,7 +281,7 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
 }
 
 function canWriteCloudData() {
-  return Boolean(cloud?.auth.currentUser && cloudDataLoaded);
+  return Boolean(cloud?.auth.currentUser && currentHouseholdId && cloudDataLoaded);
 }
 
 function getCurrentPlan() {
@@ -705,10 +746,116 @@ function getGroceryTexts() {
 
 function setupAuth() {
   document.getElementById("sign-in-github").addEventListener("click", authenticateWithGitHub);
+  document.getElementById("create-household").addEventListener("click", createHousehold);
+  document.getElementById("join-household-form").addEventListener("submit", joinHousehold);
+  document.getElementById("copy-household-code").addEventListener("click", async () => {
+    if (!currentInviteCode) return;
+    await copyText(currentInviteCode);
+    setAuthMessage("Household invite code copied.");
+  });
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
   });
+  document.getElementById("setup-sign-out").addEventListener("click", async () => {
+    if (!cloud) return;
+    await cloud.signOut(cloud.auth);
+  });
+}
+
+async function createHousehold() {
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+
+  setHouseholdControlsDisabled(true);
+  setHouseholdMessage("Creating your shared household...");
+  const householdId = crypto.randomUUID();
+  const inviteToken = crypto.randomUUID();
+
+  try {
+    const userRef = cloud.doc(cloud.db, "users", user.uid);
+    const userSnapshot = await cloud.getDoc(userRef);
+    const existingState = normalizeState(userSnapshot.data());
+    const householdRef = cloud.doc(cloud.db, "households", householdId);
+    const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
+
+    await cloud.setDoc(householdRef, {
+      ...existingState,
+      ownerUid: user.uid,
+      inviteToken
+    });
+    await cloud.setDoc(memberRef, memberRecord(user, inviteToken));
+    await cloud.setDoc(userRef, { householdId }, { merge: true });
+    subscribeToHousehold(householdId);
+  } catch (error) {
+    setHouseholdControlsDisabled(false);
+    setHouseholdMessage(`Could not create household: ${error.message}`);
+  }
+}
+
+async function joinHousehold(event) {
+  event.preventDefault();
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+
+  const inviteCode = document.getElementById("household-invite").value.trim();
+  const separatorIndex = inviteCode.indexOf(".");
+  if (separatorIndex < 1) {
+    setHouseholdMessage("That invite code is not valid. Copy the complete code from the household owner.");
+    return;
+  }
+
+  const householdId = inviteCode.slice(0, separatorIndex);
+  const inviteToken = inviteCode.slice(separatorIndex + 1);
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidPattern.test(householdId) || !uuidPattern.test(inviteToken)) {
+    setHouseholdMessage("That invite code is not valid. Copy the complete code from the household owner.");
+    return;
+  }
+
+  setHouseholdControlsDisabled(true);
+  setHouseholdMessage("Joining the shared household...");
+
+  try {
+    const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
+    const userRef = cloud.doc(cloud.db, "users", user.uid);
+    await cloud.setDoc(memberRef, memberRecord(user, inviteToken));
+    await cloud.setDoc(userRef, { householdId }, { merge: true });
+    event.target.reset();
+    subscribeToHousehold(householdId);
+  } catch (error) {
+    setHouseholdControlsDisabled(false);
+    setHouseholdMessage(error.code === "permission-denied" ? "That invite code was rejected. Ask the household owner to copy it again." : `Could not join household: ${error.message}`);
+  }
+}
+
+function memberRecord(user, inviteToken) {
+  return {
+    uid: user.uid,
+    email: user.email || "",
+    displayName: user.displayName || "GitHub account",
+    inviteToken
+  };
+}
+
+function setHouseholdControlsDisabled(disabled) {
+  document.querySelectorAll("#household-panel button, #household-panel input").forEach((element) => {
+    element.disabled = disabled;
+  });
+}
+
+async function copyText(text) {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const field = document.createElement("textarea");
+  field.value = text;
+  document.body.append(field);
+  field.select();
+  document.execCommand("copy");
+  field.remove();
 }
 
 async function authenticateWithGitHub() {
@@ -818,6 +965,10 @@ function formatShortDate(date) {
 function setAuthMessage(message) {
   authEls.message.textContent = message;
   authEls.accountMessage.textContent = message;
+}
+
+function setHouseholdMessage(message) {
+  authEls.householdMessage.textContent = message;
 }
 
 function setAccountStatus(stateName, title, detail) {

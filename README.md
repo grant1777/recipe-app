@@ -15,7 +15,7 @@ Run the app through a local web server, such as `python -m http.server 8000`, th
 
 ## Login and sync
 
-The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in before recipes, plans, or Walmart mappings can be changed.
+The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in with GitHub and create or join a household before recipes, plans, or Walmart mappings load.
 
 1. Create a Firebase project.
 2. Enable **Authentication > GitHub**.
@@ -23,6 +23,7 @@ The app uses Firebase Authentication and Cloud Firestore as its only data store.
 4. Add your GitHub Pages domain to **Authentication > Settings > Authorized domains**.
 5. In `firebase-config.js`, replace `null` with the config from **Project settings > Your apps > Web app**.
 6. For GitHub sign-in, paste Firebase's callback URL into GitHub's OAuth app **Redirect URI** field, then paste the GitHub client ID and client secret back into Firebase.
+7. Publish the membership rules with `firebase deploy --only firestore:rules`, or paste `firestore.rules` into **Firestore Database > Rules** in the Firebase console and click **Publish**.
 
 Example:
 
@@ -37,18 +38,7 @@ window.firebaseConfig = {
 };
 ```
 
-Recommended Firestore rules:
-
-```txt
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
-```
+The membership rules in `firestore.rules` allow users to access only a household they created or joined with its private invite code.
 
 ## Walmart links
 

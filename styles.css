@@ -70,6 +70,50 @@ body {
   opacity: 0.6;
 }
 
+.household-setup-panel {
+  max-width: 430px;
+  text-align: left;
+}
+
+.household-setup-panel h1,
+.household-setup-panel > p {
+  text-align: center;
+}
+
+.household-setup-panel form {
+  display: grid;
+  gap: 10px;
+}
+
+.household-setup-panel label {
+  color: #d7cfc4;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.setup-divider {
+  align-items: center;
+  color: #d7cfc4;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.setup-divider::before,
+.setup-divider::after {
+  background: rgba(255, 255, 255, 0.2);
+  content: "";
+  height: 1px;
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  color: #d7cfc4;
+  min-height: 42px;
+  text-decoration: underline;
+}
+
 button,
 input,
 select,
@@ -152,6 +196,20 @@ button {
 
 .household-note span {
   color: #d7cfc4;
+}
+
+.household-share {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.household-share code {
+  color: #d7cfc4;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
 }
 
 .auth-panel {

@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function householdDoc(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId));
+    }
+
+    function isHouseholdMember(householdId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    match /users/{userId} {
+      allow read, create, update: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /households/{householdId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.inviteToken is string;
+
+      allow read: if isHouseholdMember(householdId);
+
+      allow update: if isHouseholdMember(householdId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.inviteToken == resource.data.inviteToken;
+
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /members/{memberId} {
+        allow create: if signedIn()
+          && request.auth.uid == memberId
+          && request.resource.data.uid == request.auth.uid
+          && exists(/databases/$(database)/documents/households/$(householdId))
+          && (
+            householdDoc(householdId).data.ownerUid == request.auth.uid
+            || request.resource.data.inviteToken == householdDoc(householdId).data.inviteToken
+          );
+
+        allow read: if signedIn()
+          && (
+            request.auth.uid == memberId
+            || householdDoc(householdId).data.ownerUid == request.auth.uid
+          );
+
+        allow update, delete: if signedIn() && request.auth.uid == memberId;
+      }
+    }
+  }
+}

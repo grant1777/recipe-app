@@ -17,6 +17,23 @@
       </div>
     </section>
 
+    <section class="auth-gate" id="household-panel" aria-labelledby="household-setup-title" hidden>
+      <div class="login-panel household-setup-panel">
+        <p class="eyebrow">Signed in with GitHub</p>
+        <h1 id="household-setup-title">Join your household</h1>
+        <p id="household-account">Choose how this account will share recipe data.</p>
+        <button class="primary-button full-button" id="create-household" type="button">Create household</button>
+        <div class="setup-divider"><span>or</span></div>
+        <form id="join-household-form">
+          <label for="household-invite">Household invite code</label>
+          <input id="household-invite" autocomplete="off" required placeholder="Paste the invite code" />
+          <button class="light-button full-button" type="submit">Join household</button>
+        </form>
+        <button class="text-button" id="setup-sign-out" type="button">Sign out</button>
+        <p id="household-message" class="auth-message" aria-live="polite"></p>
+      </div>
+    </section>
+
     <div class="app-shell" id="app-shell" hidden>
       <aside class="sidebar" aria-label="App navigation">
         <div>
@@ -33,6 +50,11 @@
         <div class="household-note">
           <strong id="week-sidebar-title">This week</strong>
           <span id="planned-count">0 meals planned</span>
+        </div>
+        <div class="household-share">
+          <strong>Household invite</strong>
+          <code id="household-code">Loading...</code>
+          <button class="light-button" id="copy-household-code" type="button">Copy invite code</button>
         </div>
         <section class="auth-panel" aria-label="Account">
           <div class="account-status" id="account-status" data-state="checking" role="status" aria-live="polite">
@@ -219,7 +241,7 @@
       </select>
     </template>
 
-    <script src="firebase-config.js?v=20260825-2"></script>
-    <script src="app.js?v=20260825-2"></script>
+    <script src="firebase-config.js?v=20260825-3"></script>
+    <script src="app.js?v=20260825-3"></script>
   </body>
 </html>
