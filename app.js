@@ -125,11 +125,13 @@ async function initializeCloud() {
       signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
       createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
       GithubAuthProvider: authModule.GithubAuthProvider,
-      signInWithPopup: authModule.signInWithPopup,
+      getRedirectResult: authModule.getRedirectResult,
+      signInWithRedirect: authModule.signInWithRedirect,
       signOut: authModule.signOut
     };
 
     cloud.onAuthStateChanged(auth, handleAuthChange);
+    checkGitHubRedirectResult();
     setAuthMessage("Firebase ready.");
   } catch (error) {
     setAuthMessage(`Firebase did not load: ${error.message}`);
@@ -680,13 +682,44 @@ async function authenticateWithGitHub() {
     return;
   }
 
+  if (window.location.protocol === "file:") {
+    setAuthMessage("GitHub sign-in needs http://localhost or your deployed site, not a file opened directly.");
+    return;
+  }
+
   try {
     const provider = new cloud.GithubAuthProvider();
-    await cloud.signInWithPopup(cloud.auth, provider);
-    setAuthMessage("Signed in with GitHub.");
+    await cloud.signInWithRedirect(cloud.auth, provider);
   } catch (error) {
-    setAuthMessage(error.message);
+    setAuthMessage(authErrorMessage(error));
   }
+}
+
+async function checkGitHubRedirectResult() {
+  try {
+    const result = await cloud.getRedirectResult(cloud.auth);
+    if (result?.user) {
+      setAuthMessage("Signed in with GitHub.");
+    }
+  } catch (error) {
+    setAuthMessage(authErrorMessage(error));
+  }
+}
+
+function authErrorMessage(error) {
+  if (error.code === "auth/unauthorized-domain") {
+    return `Firebase rejected this domain: ${window.location.hostname}. Add it in Firebase Authentication > Settings > Authorized domains.`;
+  }
+
+  if (error.code === "auth/operation-not-allowed") {
+    return "Enable GitHub in Firebase Authentication > Sign-in method.";
+  }
+
+  if (error.code === "auth/popup-closed-by-user") {
+    return "The GitHub sign-in popup closed before it finished.";
+  }
+
+  return error.message;
 }
 
 function changeWeek(daysToMove) {
