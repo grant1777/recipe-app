@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Household Recipe Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="App navigation">
+        <div>
+          <p class="eyebrow">Household</p>
+          <h1>Recipe Planner</h1>
+        </div>
+        <nav class="tabs" aria-label="Primary">
+          <button class="tab-button active" data-tab="planner" type="button">Planner</button>
+          <button class="tab-button" data-tab="recipes" type="button">Recipes</button>
+          <button class="tab-button" data-tab="groceries" type="button">Groceries</button>
+          <button class="tab-button" data-tab="walmart" type="button">Walmart</button>
+          <button class="tab-button" data-tab="macros" type="button">Macros</button>
+        </nav>
+        <div class="household-note">
+          <strong id="week-sidebar-title">This week</strong>
+          <span id="planned-count">0 meals planned</span>
+        </div>
+        <section class="auth-panel" aria-label="Account">
+          <div id="signed-out-panel">
+            <strong>Account</strong>
+            <input id="auth-email" autocomplete="email" placeholder="Email" type="email" />
+            <input id="auth-password" autocomplete="current-password" placeholder="Password" type="password" />
+            <div class="auth-actions">
+              <button class="light-button" id="sign-in" type="button">Sign in</button>
+              <button class="light-button" id="sign-up" type="button">Create</button>
+            </div>
+          </div>
+          <div id="signed-in-panel" hidden>
+            <strong id="account-email">Signed in</strong>
+            <span id="sync-status">Synced</span>
+            <button class="light-button" id="sign-out" type="button">Sign out</button>
+          </div>
+          <p id="auth-message" class="auth-message"></p>
+        </section>
+      </aside>
+
+      <main>
+        <section class="view active" id="planner-view" aria-labelledby="planner-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Weekly meal planner</p>
+              <h2 id="planner-title">Plan meals by day</h2>
+            </div>
+            <div class="week-controls" aria-label="Week navigation">
+              <button class="secondary-button" id="previous-week" type="button">Previous</button>
+              <button class="secondary-button" id="current-week" type="button">This week</button>
+              <button class="secondary-button" id="next-week" type="button">Next</button>
+              <button class="primary-button" id="clear-week" type="button">Clear week</button>
+            </div>
+          </div>
+          <div class="week-strip">
+            <strong id="week-range">Week range</strong>
+          </div>
+          <div class="week-grid" id="week-grid"></div>
+        </section>
+
+        <section class="view" id="recipes-view" aria-labelledby="recipes-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Recipe box</p>
+              <h2 id="recipes-title">Add and organize recipes</h2>
+            </div>
+            <div class="filter-row">
+              <label for="category-filter">Category</label>
+              <select id="category-filter">
+                <option value="all">All recipes</option>
+              </select>
+            </div>
+          </div>
+
+          <form class="recipe-form" id="recipe-form">
+            <div class="form-grid">
+              <label>
+                Recipe name
+                <input id="recipe-name" required placeholder="Chicken rice bowls" />
+              </label>
+              <label>
+                Category
+                <select id="recipe-category">
+                  <option>Breakfast</option>
+                  <option>Lunch</option>
+                  <option>Dinner</option>
+                  <option>Dessert</option>
+                  <option>Snack</option>
+                  <option>Side</option>
+                </select>
+              </label>
+              <label>
+                Servings
+                <input id="recipe-servings" min="1" required type="number" value="4" />
+              </label>
+              <label>
+                Calories
+                <input id="recipe-calories" min="0" required type="number" value="450" />
+              </label>
+              <label>
+                Protein (g)
+                <input id="recipe-protein" min="0" required type="number" value="30" />
+              </label>
+              <label>
+                Carbs (g)
+                <input id="recipe-carbs" min="0" required type="number" value="45" />
+              </label>
+              <label>
+                Fat (g)
+                <input id="recipe-fat" min="0" required type="number" value="15" />
+              </label>
+            </div>
+
+            <label>
+              Ingredients
+              <textarea
+                id="recipe-ingredients"
+                required
+                placeholder="1.5 lb chicken breast&#10;2 cup rice&#10;1 bag frozen broccoli"
+              ></textarea>
+            </label>
+
+            <label>
+              Notes
+              <textarea id="recipe-notes" placeholder="Sauce, prep notes, oven temp, picky-eater edits"></textarea>
+            </label>
+
+            <button class="primary-button" type="submit">Add recipe</button>
+          </form>
+
+          <div class="recipe-list" id="recipe-list"></div>
+        </section>
+
+        <section class="view" id="groceries-view" aria-labelledby="groceries-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Auto-built list</p>
+              <h2 id="groceries-title">Groceries for planned meals</h2>
+            </div>
+            <div class="week-controls">
+              <button class="secondary-button" id="open-walmart-list" type="button">Open Walmart</button>
+              <button class="primary-button" id="copy-groceries" type="button">Copy list</button>
+            </div>
+          </div>
+          <div class="grocery-list" id="grocery-list"></div>
+        </section>
+
+        <section class="view" id="walmart-view" aria-labelledby="walmart-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Preferred products</p>
+              <h2 id="walmart-title">Map ingredients to Walmart</h2>
+            </div>
+          </div>
+
+          <form class="recipe-form" id="walmart-map-form">
+            <div class="form-grid walmart-form-grid">
+              <label>
+                Ingredient name
+                <input id="mapping-ingredient" required placeholder="milk" />
+              </label>
+              <label>
+                Product name
+                <input id="mapping-product" required placeholder="Great Value 2% Milk" />
+              </label>
+              <label>
+                Walmart product URL
+                <input id="mapping-url" required placeholder="https://www.walmart.com/ip/..." type="url" />
+              </label>
+            </div>
+            <button class="primary-button" type="submit">Save mapping</button>
+          </form>
+
+          <div class="mapping-tools">
+            <div>
+              <p class="eyebrow">This week</p>
+              <h3>Unmapped grocery items</h3>
+            </div>
+            <div class="mapping-list" id="unmapped-list"></div>
+          </div>
+
+          <div class="mapping-tools">
+            <div>
+              <p class="eyebrow">Saved</p>
+              <h3>Walmart product mappings</h3>
+            </div>
+            <div class="mapping-list" id="mapping-list"></div>
+          </div>
+        </section>
+
+        <section class="view" id="macros-view" aria-labelledby="macros-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Nutrition totals</p>
+              <h2 id="macros-title">Weekly macro summary</h2>
+            </div>
+          </div>
+          <div class="macro-dashboard" id="macro-dashboard"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="meal-select-template">
+      <select class="meal-select">
+        <option value="">Choose a recipe</option>
+      </select>
+    </template>
+
+    <script src="firebase-config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
