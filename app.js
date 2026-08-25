@@ -154,15 +154,18 @@ async function handleAuthChange(user) {
 
   const ref = cloud.doc(cloud.db, "users", user.uid);
   try {
+    const localState = normalizeState(state);
     const snapshot = await cloud.getDoc(ref);
     if (snapshot.exists()) {
-      state = normalizeState(snapshot.data());
+      state = mergeCloudAndLocalState(snapshot.data(), localState);
+      await cloud.setDoc(ref, state);
     } else {
       await cloud.setDoc(ref, state);
     }
 
     saveLocalState();
     authEls.syncStatus.textContent = "Synced";
+    setAuthMessage("Signed in. Local data synced to Firebase.");
   } catch (error) {
     authEls.syncStatus.textContent = "Sync error";
     setAuthMessage(`Firestore sync failed: ${error.message}`);
@@ -195,6 +198,28 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
     setAuthMessage(`${errorPrefix}: ${error.message}`);
     return false;
   }
+}
+
+function mergeCloudAndLocalState(cloudData, localData) {
+  const cloudState = normalizeState(cloudData);
+  const localState = normalizeState(localData);
+  const recipesById = new Map();
+
+  [...cloudState.recipes, ...localState.recipes].forEach((recipe) => {
+    if (recipe?.id) recipesById.set(recipe.id, recipe);
+  });
+
+  return {
+    recipes: [...recipesById.values()],
+    plans: {
+      ...cloudState.plans,
+      ...localState.plans
+    },
+    mappings: {
+      ...cloudState.mappings,
+      ...localState.mappings
+    }
+  };
 }
 
 function saveLocalState() {
