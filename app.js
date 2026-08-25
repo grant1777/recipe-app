@@ -177,16 +177,24 @@ function saveState() {
 
   clearTimeout(saveTimer);
   authEls.syncStatus.textContent = "Saving";
-  saveTimer = setTimeout(async () => {
-    try {
-      const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
-      await cloud.setDoc(ref, state);
-      authEls.syncStatus.textContent = "Synced";
-    } catch (error) {
-      authEls.syncStatus.textContent = "Sync error";
-      setAuthMessage(`Firestore save failed: ${error.message}`);
-    }
+  saveTimer = setTimeout(() => {
+    saveCloudState("Firestore save failed");
   }, 350);
+}
+
+async function saveCloudState(errorPrefix = "Firestore save failed") {
+  if (!cloud?.auth.currentUser) return false;
+
+  try {
+    const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
+    await cloud.setDoc(ref, state);
+    authEls.syncStatus.textContent = "Synced";
+    return true;
+  } catch (error) {
+    authEls.syncStatus.textContent = "Sync error";
+    setAuthMessage(`${errorPrefix}: ${error.message}`);
+    return false;
+  }
 }
 
 function saveLocalState() {
@@ -585,7 +593,7 @@ function setupForms() {
 
   document.getElementById("category-filter").addEventListener("change", renderRecipes);
 
-  document.getElementById("walmart-map-form").addEventListener("submit", (event) => {
+  document.getElementById("walmart-map-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const ingredient = document.getElementById("mapping-ingredient").value.trim();
     const product = document.getElementById("mapping-product").value.trim();
@@ -594,8 +602,18 @@ function setupForms() {
 
     state.mappings[key] = { key, ingredient, product, url };
     event.target.reset();
-    saveState();
+    saveLocalState();
     renderAll();
+
+    if (!cloud?.auth.currentUser) {
+      setAuthMessage("Mapping saved locally. Sign in to sync it to Firebase.");
+      return;
+    }
+
+    clearTimeout(saveTimer);
+    authEls.syncStatus.textContent = "Saving";
+    const saved = await saveCloudState("Mapping save failed");
+    if (saved) setAuthMessage("Mapping saved to Firebase.");
   });
 
   document.getElementById("clear-week").addEventListener("click", () => {
