@@ -15,7 +15,7 @@ Run the app through a local web server, such as `python -m http.server 8000`, th
 
 ## Login and sync
 
-The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in with GitHub and create or join a household before recipes, plans, or Walmart mappings load.
+The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in with GitHub and create or join a household before recipes, plans, or the ingredient index load.
 
 1. Create a Firebase project.
 2. Enable **Authentication > GitHub**.
@@ -40,8 +40,8 @@ window.firebaseConfig = {
 
 The membership rules in `firestore.rules` allow users to access only a household they created or joined with its private invite code.
 
-## Walmart links
+## Ingredient index
 
-The Walmart tab lets you map household ingredients to preferred Walmart product URLs. The grocery list will use saved product links when available and fall back to Walmart search links for unmapped items.
+The Ingredients tab stores each ingredient's serving size, macros, and preferred Walmart product URL. Recipe ingredient rows search this index and calculate recipe and weekly macros automatically. The grocery list uses saved Walmart links and falls back to Walmart search for ingredients from older recipes.
 
 Walmart does not currently provide a simple public consumer API for writing directly to a shopper's native Walmart List from a static GitHub Pages app.

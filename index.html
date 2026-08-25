@@ -44,7 +44,7 @@
           <button class="tab-button active" data-tab="planner" type="button">Planner</button>
           <button class="tab-button" data-tab="recipes" type="button">Recipes</button>
           <button class="tab-button" data-tab="groceries" type="button">Groceries</button>
-          <button class="tab-button" data-tab="walmart" type="button">Walmart</button>
+          <button class="tab-button" data-tab="ingredients" type="button">Ingredients</button>
           <button class="tab-button" data-tab="macros" type="button">Macros</button>
         </nav>
         <div class="household-note">
@@ -129,32 +129,17 @@
                 Servings
                 <input id="recipe-servings" min="1" required type="number" value="4" />
               </label>
-              <label>
-                Calories
-                <input id="recipe-calories" min="0" required type="number" value="450" />
-              </label>
-              <label>
-                Protein (g)
-                <input id="recipe-protein" min="0" required type="number" value="30" />
-              </label>
-              <label>
-                Carbs (g)
-                <input id="recipe-carbs" min="0" required type="number" value="45" />
-              </label>
-              <label>
-                Fat (g)
-                <input id="recipe-fat" min="0" required type="number" value="15" />
-              </label>
             </div>
 
-            <label>
-              Ingredients
-              <textarea
-                id="recipe-ingredients"
-                required
-                placeholder="1.5 lb chicken breast&#10;2 cup rice&#10;1 bag frozen broccoli"
-              ></textarea>
-            </label>
+            <div class="ingredient-builder">
+              <div class="ingredient-builder-header">
+                <strong>Ingredients</strong>
+                <button class="secondary-button" id="add-recipe-ingredient" type="button">Add ingredient</button>
+              </div>
+              <datalist id="ingredient-options"></datalist>
+              <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
+              <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
+            </div>
 
             <label>
               Notes
@@ -181,46 +166,58 @@
           <div class="grocery-list" id="grocery-list"></div>
         </section>
 
-        <section class="view" id="walmart-view" aria-labelledby="walmart-title">
+        <section class="view" id="ingredients-view" aria-labelledby="ingredients-title">
           <div class="view-header">
             <div>
-              <p class="eyebrow">Preferred products</p>
-              <h2 id="walmart-title">Map ingredients to Walmart</h2>
+              <p class="eyebrow">Nutrition and products</p>
+              <h2 id="ingredients-title">Ingredient index</h2>
             </div>
           </div>
 
-          <form class="recipe-form" id="walmart-map-form">
-            <div class="form-grid walmart-form-grid">
+          <form class="recipe-form" id="ingredient-form">
+            <div class="form-grid ingredient-form-grid">
               <label>
                 Ingredient name
-                <input id="mapping-ingredient" required placeholder="milk" />
+                <input id="ingredient-name" required placeholder="Chicken breast" />
               </label>
               <label>
-                Product name
-                <input id="mapping-product" required placeholder="Great Value 2% Milk" />
+                Serving size
+                <input id="ingredient-serving" required placeholder="4 oz" />
+              </label>
+              <label>
+                Calories
+                <input id="ingredient-calories" min="0" required type="number" value="0" />
+              </label>
+              <label>
+                Protein (g)
+                <input id="ingredient-protein" min="0" required step="0.1" type="number" value="0" />
+              </label>
+              <label>
+                Carbs (g)
+                <input id="ingredient-carbs" min="0" required step="0.1" type="number" value="0" />
+              </label>
+              <label>
+                Fat (g)
+                <input id="ingredient-fat" min="0" required step="0.1" type="number" value="0" />
+              </label>
+              <label>
+                Walmart product name
+                <input id="ingredient-product" required placeholder="Great Value Chicken Breast" />
               </label>
               <label>
                 Walmart product URL
-                <input id="mapping-url" required placeholder="https://www.walmart.com/ip/..." type="url" />
+                <input id="ingredient-url" required placeholder="https://www.walmart.com/ip/..." type="url" />
               </label>
             </div>
-            <button class="primary-button" type="submit">Save mapping</button>
+            <button class="primary-button" type="submit">Save ingredient</button>
           </form>
 
           <div class="mapping-tools">
             <div>
-              <p class="eyebrow">This week</p>
-              <h3>Unmapped grocery items</h3>
-            </div>
-            <div class="mapping-list" id="unmapped-list"></div>
-          </div>
-
-          <div class="mapping-tools">
-            <div>
               <p class="eyebrow">Saved</p>
-              <h3>Walmart product mappings</h3>
+              <h3>Searchable ingredients</h3>
             </div>
-            <div class="mapping-list" id="mapping-list"></div>
+            <div class="mapping-list" id="ingredient-list"></div>
           </div>
         </section>
 
@@ -242,7 +239,7 @@
       </select>
     </template>
 
-    <script src="firebase-config.js?v=20260825-4"></script>
-    <script src="app.js?v=20260825-4"></script>
+    <script src="firebase-config.js?v=20260825-5"></script>
+    <script src="app.js?v=20260825-5"></script>
   </body>
 </html>

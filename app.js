@@ -76,7 +76,7 @@ function blankPlan() {
 function createInitialState() {
   return {
     recipes: starterRecipes,
-    mappings: {},
+    ingredients: {},
     plans: {
       [dateKey(selectedWeekStart)]: blankPlan()
     }
@@ -86,7 +86,7 @@ function createInitialState() {
 function createSignedOutState() {
   return {
     recipes: [],
-    mappings: {},
+    ingredients: {},
     plans: {
       [dateKey(selectedWeekStart)]: blankPlan()
     }
@@ -94,10 +94,11 @@ function createSignedOutState() {
 }
 
 function normalizeState(value) {
+  const ingredientSource = value?.ingredients && typeof value.ingredients === "object" ? value.ingredients : value?.mappings;
   const normalized = {
     recipes: Array.isArray(value?.recipes) ? value.recipes : starterRecipes,
     plans: value?.plans && typeof value.plans === "object" ? value.plans : {},
-    mappings: value?.mappings && typeof value.mappings === "object" ? value.mappings : {}
+    ingredients: normalizeIngredientCatalog(ingredientSource)
   };
 
   if (value?.plan && !Object.keys(normalized.plans).length) {
@@ -109,6 +110,31 @@ function normalizeState(value) {
   }
 
   return normalized;
+}
+
+function normalizeIngredientCatalog(value) {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    Object.values(value).map((item) => {
+      const name = item.name || item.ingredient || "Ingredient";
+      const key = ingredientKey(name);
+      return [
+        key,
+        {
+          key,
+          name,
+          serving: item.serving || "1 serving",
+          calories: Number(item.calories || 0),
+          protein: Number(item.protein || 0),
+          carbs: Number(item.carbs || 0),
+          fat: Number(item.fat || 0),
+          product: item.product || name,
+          url: item.url || walmartSearchUrl(name)
+        }
+      ];
+    })
+  );
 }
 
 async function initializeCloud() {
@@ -390,8 +416,9 @@ function renderRecipes() {
   }
 
   list.innerHTML = recipes
-    .map(
-      (recipe) => `
+    .map((recipe) => {
+      const macros = recipeMacros(recipe);
+      return `
         <article class="recipe-card">
           <header>
             <div>
@@ -401,17 +428,17 @@ function renderRecipes() {
             <button class="danger-button" data-delete="${recipe.id}" type="button">Delete</button>
           </header>
           <div class="macro-row">
-            ${macroChip("Cal", recipe.calories)}
-            ${macroChip("Protein", `${recipe.protein}g`)}
-            ${macroChip("Carbs", `${recipe.carbs}g`)}
-            ${macroChip("Fat", `${recipe.fat}g`)}
+            ${macroChip("Cal", formatMacro(macros.calories))}
+            ${macroChip("Protein", `${formatMacro(macros.protein)}g`)}
+            ${macroChip("Carbs", `${formatMacro(macros.carbs)}g`)}
+            ${macroChip("Fat", `${formatMacro(macros.fat)}g`)}
           </div>
           <ul class="ingredients">
-            ${recipe.ingredients.map((ingredient) => `<li>${escapeHtml(ingredient)}</li>`).join("")}
+            ${recipe.ingredients.map((ingredient) => `<li>${escapeHtml(recipeIngredientText(ingredient))}</li>`).join("")}
           </ul>
           ${recipe.notes ? `<p class="empty-state">${escapeHtml(recipe.notes)}</p>` : ""}
-        </article>`
-    )
+        </article>`;
+    })
     .join("");
 
   list.querySelectorAll("[data-delete]").forEach((button) => {
@@ -436,11 +463,43 @@ function macroChip(label, value) {
   return `<div class="macro-chip"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function recipeMacros(recipe) {
+  const catalogIngredients = recipe.ingredients?.filter((item) => item && typeof item === "object") || [];
+  if (!catalogIngredients.length) {
+    return {
+      calories: Number(recipe.calories || 0),
+      protein: Number(recipe.protein || 0),
+      carbs: Number(recipe.carbs || 0),
+      fat: Number(recipe.fat || 0)
+    };
+  }
+
+  return catalogIngredients.reduce((totals, item) => {
+    const ingredient = state.ingredients[item.key] || item;
+    const quantity = Number(item.quantity || 0);
+    totals.calories += Number(ingredient.calories || 0) * quantity;
+    totals.protein += Number(ingredient.protein || 0) * quantity;
+    totals.carbs += Number(ingredient.carbs || 0) * quantity;
+    totals.fat += Number(ingredient.fat || 0) * quantity;
+    return totals;
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+function recipeIngredientText(item) {
+  if (typeof item === "string") return item;
+  const ingredient = state.ingredients[item.key] || item;
+  return `${formatQuantity(Number(item.quantity || 0))} x ${ingredient.serving || "serving"} ${ingredient.name || "Ingredient"}`;
+}
+
+function formatMacro(value) {
+  return Number(value || 0).toFixed(1).replace(/\.0$/, "");
+}
+
 function renderGroceries() {
   const groceries = new Map();
   plannedRecipes().forEach((recipe) => {
     recipe.ingredients.forEach((ingredient) => {
-      const parsed = parseIngredient(ingredient);
+      const parsed = parseRecipeIngredient(ingredient);
       if (!parsed) return;
 
       const existing = groceries.get(parsed.key);
@@ -470,9 +529,9 @@ function renderGroceries() {
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((item) => {
           const text = formatGroceryItem(item);
-          const mapping = findMapping(item.name);
-          const link = mapping?.url || walmartSearchUrl(item.name);
-          const linkLabel = mapping ? escapeHtml(mapping.product) : "Search Walmart";
+          const ingredient = findIngredient(item.name);
+          const link = ingredient?.url || walmartSearchUrl(item.name);
+          const linkLabel = ingredient ? escapeHtml(ingredient.product) : "Search Walmart";
           return `
             <li>
               <span>${escapeHtml(text)}</span>
@@ -481,6 +540,20 @@ function renderGroceries() {
         })
         .join("")}
     </ul>`;
+}
+
+function parseRecipeIngredient(item) {
+  if (typeof item === "string") return parseIngredient(item);
+  const ingredient = state.ingredients[item.key] || item;
+  if (!ingredient?.name) return null;
+
+  return {
+    key: ingredient.key || ingredientKey(ingredient.name),
+    name: ingredient.name,
+    unit: ingredient.serving || "serving",
+    quantity: Number(item.quantity || 0),
+    count: 1
+  };
 }
 
 function parseIngredient(ingredient) {
@@ -543,86 +616,73 @@ function formatQuantity(quantity) {
 
 function renderMacros() {
   const totals = plannedRecipes().reduce(
-    (sum, recipe) => ({
-      calories: sum.calories + Number(recipe.calories || 0),
-      protein: sum.protein + Number(recipe.protein || 0),
-      carbs: sum.carbs + Number(recipe.carbs || 0),
-      fat: sum.fat + Number(recipe.fat || 0)
-    }),
+    (sum, recipe) => {
+      const macros = recipeMacros(recipe);
+      return {
+        calories: sum.calories + macros.calories,
+        protein: sum.protein + macros.protein,
+        carbs: sum.carbs + macros.carbs,
+        fat: sum.fat + macros.fat
+      };
+    },
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
 
   document.getElementById("macro-dashboard").innerHTML = [
-    macroCard("Calories", totals.calories),
-    macroCard("Protein", `${totals.protein}g`),
-    macroCard("Carbs", `${totals.carbs}g`),
-    macroCard("Fat", `${totals.fat}g`)
+    macroCard("Calories", formatMacro(totals.calories)),
+    macroCard("Protein", `${formatMacro(totals.protein)}g`),
+    macroCard("Carbs", `${formatMacro(totals.carbs)}g`),
+    macroCard("Fat", `${formatMacro(totals.fat)}g`)
   ].join("");
 }
 
-function renderWalmartMappings() {
-  renderUnmappedIngredients();
-  renderSavedMappings();
-}
+function renderIngredients() {
+  const ingredients = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById("ingredient-options").innerHTML = ingredients
+    .map((ingredient) => `<option value="${escapeHtml(ingredient.name)}">${escapeHtml(ingredient.serving)}</option>`)
+    .join("");
 
-function renderUnmappedIngredients() {
-  const list = document.getElementById("unmapped-list");
-  const ingredients = [...new Set(plannedRecipes().flatMap((recipe) => recipe.ingredients.map((item) => parseIngredient(item)?.name).filter(Boolean)))]
-    .filter((name) => !findMapping(name))
-    .sort((a, b) => a.localeCompare(b));
-
+  const list = document.getElementById("ingredient-list");
   if (!ingredients.length) {
-    list.innerHTML = '<p class="empty-state">All planned grocery items have mappings, or this week has no planned meals.</p>';
+    list.innerHTML = '<p class="empty-state">Add an ingredient with its serving macros before building a recipe.</p>';
     return;
   }
 
   list.innerHTML = ingredients
     .map(
-      (name) => `
-        <article class="mapping-row">
-          <span>${escapeHtml(name)}</span>
-          <button class="secondary-button" data-fill-mapping="${escapeHtml(name)}" type="button">Map</button>
-        </article>`
-    )
-    .join("");
-
-  list.querySelectorAll("[data-fill-mapping]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const name = button.dataset.fillMapping;
-      document.getElementById("mapping-ingredient").value = name;
-      document.getElementById("mapping-product").focus();
-    });
-  });
-}
-
-function renderSavedMappings() {
-  const list = document.getElementById("mapping-list");
-  const mappings = Object.values(state.mappings || {}).sort((a, b) => a.ingredient.localeCompare(b.ingredient));
-
-  if (!mappings.length) {
-    list.innerHTML = '<p class="empty-state">No Walmart product mappings saved yet.</p>';
-    return;
-  }
-
-  list.innerHTML = mappings
-    .map(
-      (mapping) => `
+      (ingredient) => `
         <article class="mapping-row">
           <div>
-            <strong>${escapeHtml(mapping.ingredient)}</strong>
-            <a href="${escapeHtml(mapping.url)}" target="_blank" rel="noopener">${escapeHtml(mapping.product)}</a>
+            <strong>${escapeHtml(ingredient.name)} - ${escapeHtml(ingredient.serving)}</strong>
+            <span>${formatMacro(ingredient.calories)} cal - ${formatMacro(ingredient.protein)}g protein - ${formatMacro(ingredient.carbs)}g carbs - ${formatMacro(ingredient.fat)}g fat</span>
+            <a href="${escapeHtml(ingredient.url)}" target="_blank" rel="noopener">${escapeHtml(ingredient.product)}</a>
           </div>
-          <button class="danger-button" data-delete-mapping="${escapeHtml(mapping.key)}" type="button">Delete</button>
+          <div class="mapping-actions">
+            <button class="secondary-button" data-edit-ingredient="${escapeHtml(ingredient.key)}" type="button">Edit</button>
+            <button class="danger-button" data-delete-ingredient="${escapeHtml(ingredient.key)}" type="button">Delete</button>
+          </div>
         </article>`
     )
     .join("");
 
-  list.querySelectorAll("[data-delete-mapping]").forEach((button) => {
+  list.querySelectorAll("[data-edit-ingredient]").forEach((button) => {
+    button.addEventListener("click", () => fillIngredientForm(state.ingredients[button.dataset.editIngredient]));
+  });
+
+  list.querySelectorAll("[data-delete-ingredient]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!requireCloudWrite()) return;
-      delete state.mappings[button.dataset.deleteMapping];
+      const key = button.dataset.deleteIngredient;
+      const inUse = state.recipes.some((recipe) => recipe.ingredients?.some((item) => typeof item === "object" && item.key === key));
+      if (inUse) {
+        setAuthMessage("This ingredient is used by a recipe and cannot be deleted.");
+        return;
+      }
+
+      delete state.ingredients[key];
       saveState();
       renderAll();
+      refreshRecipeMacroPreview();
     });
   });
 }
@@ -648,9 +708,10 @@ function renderAll() {
   renderPlanner();
   renderRecipes();
   renderGroceries();
-  renderWalmartMappings();
+  renderIngredients();
   renderMacros();
   renderPlannedCount();
+  refreshRecipeIngredientRows();
   updateDataControls();
 }
 
@@ -658,49 +719,72 @@ function setupForms() {
   document.getElementById("recipe-form").addEventListener("submit", (event) => {
     event.preventDefault();
     if (!requireCloudWrite()) return;
-    const ingredients = document
-      .getElementById("recipe-ingredients")
-      .value.split("\n")
-      .map((ingredient) => ingredient.trim())
-      .filter(Boolean);
+    const ingredients = collectRecipeIngredients();
+    if (!ingredients?.length) {
+      setAuthMessage("Choose at least one ingredient from the ingredient index.");
+      return;
+    }
+
+    const macros = macrosForIngredientRows(ingredients);
 
     state.recipes.push({
       id: crypto.randomUUID(),
       name: document.getElementById("recipe-name").value.trim(),
       category: document.getElementById("recipe-category").value,
       servings: Number(document.getElementById("recipe-servings").value),
-      calories: Number(document.getElementById("recipe-calories").value),
-      protein: Number(document.getElementById("recipe-protein").value),
-      carbs: Number(document.getElementById("recipe-carbs").value),
-      fat: Number(document.getElementById("recipe-fat").value),
+      ...macros,
       ingredients,
       notes: document.getElementById("recipe-notes").value.trim()
     });
 
     event.target.reset();
     document.getElementById("recipe-servings").value = 4;
+    document.getElementById("recipe-ingredient-rows").innerHTML = "";
+    addRecipeIngredientRow();
     saveState();
     renderAll();
   });
 
   document.getElementById("category-filter").addEventListener("change", renderRecipes);
+  document.getElementById("add-recipe-ingredient").addEventListener("click", () => addRecipeIngredientRow());
 
-  document.getElementById("walmart-map-form").addEventListener("submit", async (event) => {
+  document.getElementById("ingredient-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!requireCloudWrite()) return;
-    const ingredient = document.getElementById("mapping-ingredient").value.trim();
-    const product = document.getElementById("mapping-product").value.trim();
-    const url = document.getElementById("mapping-url").value.trim();
-    const key = mappingKey(ingredient);
+    const name = document.getElementById("ingredient-name").value.trim();
+    const key = ingredientKey(name);
+    const previousKey = event.target.dataset.editingKey;
+    const ingredient = {
+      key,
+      name,
+      serving: document.getElementById("ingredient-serving").value.trim(),
+      calories: Number(document.getElementById("ingredient-calories").value),
+      protein: Number(document.getElementById("ingredient-protein").value),
+      carbs: Number(document.getElementById("ingredient-carbs").value),
+      fat: Number(document.getElementById("ingredient-fat").value),
+      product: document.getElementById("ingredient-product").value.trim(),
+      url: document.getElementById("ingredient-url").value.trim()
+    };
 
-    state.mappings[key] = { key, ingredient, product, url };
+    if (previousKey && previousKey !== key) {
+      delete state.ingredients[previousKey];
+      state.recipes.forEach((recipe) => {
+        recipe.ingredients?.forEach((item) => {
+          if (typeof item === "object" && item.key === previousKey) item.key = key;
+        });
+      });
+    }
+
+    state.ingredients[key] = ingredient;
     event.target.reset();
+    delete event.target.dataset.editingKey;
+    resetIngredientMacroInputs();
     renderAll();
 
     authEls.syncStatus.textContent = "Saving";
     setAccountStatus("checking", "Signed in", "Saving to Firebase...");
-    const saved = await saveCloudState("Mapping save failed");
-    if (saved) setAuthMessage("Mapping saved to Firebase.");
+    const saved = await saveCloudState("Ingredient save failed");
+    if (saved) setAuthMessage("Ingredient saved to Firebase.");
   });
 
   document.getElementById("clear-week").addEventListener("click", () => {
@@ -738,6 +822,112 @@ function setupForms() {
     const items = getGroceryTexts();
     if (!items.length) return;
     window.open(walmartSearchUrl(items.join(" ")), "_blank", "noopener");
+  });
+
+  addRecipeIngredientRow();
+}
+
+function addRecipeIngredientRow(item = {}) {
+  const container = document.getElementById("recipe-ingredient-rows");
+  const row = document.createElement("div");
+  row.className = "recipe-ingredient-row";
+  const ingredient = state.ingredients[item.key] || item;
+  row.innerHTML = `
+    <label>
+      Ingredient
+      <input class="recipe-ingredient-search" list="ingredient-options" required placeholder="Search ingredients" value="${escapeHtml(ingredient.name || "")}" />
+    </label>
+    <label>
+      Quantity
+      <input class="recipe-ingredient-quantity" min="0.01" required step="0.25" type="number" value="${Number(item.quantity || 1)}" />
+    </label>
+    <span class="recipe-ingredient-serving">${ingredient.serving ? `x ${escapeHtml(ingredient.serving)}` : "Choose an ingredient"}</span>
+    <button class="danger-button" type="button">Remove</button>`;
+
+  const search = row.querySelector(".recipe-ingredient-search");
+  const quantity = row.querySelector(".recipe-ingredient-quantity");
+  search.addEventListener("input", () => {
+    updateRecipeIngredientRow(row);
+    refreshRecipeMacroPreview();
+  });
+  quantity.addEventListener("input", refreshRecipeMacroPreview);
+  row.querySelector("button").addEventListener("click", () => {
+    row.remove();
+    refreshRecipeMacroPreview();
+  });
+  container.append(row);
+  refreshRecipeMacroPreview();
+}
+
+function updateRecipeIngredientRow(row) {
+  const name = row.querySelector(".recipe-ingredient-search").value;
+  const ingredient = state.ingredients[ingredientKey(name)];
+  row.querySelector(".recipe-ingredient-serving").textContent = ingredient ? `x ${ingredient.serving}` : "Choose an indexed ingredient";
+}
+
+function collectRecipeIngredients(allowIncomplete = false) {
+  const rows = [...document.querySelectorAll(".recipe-ingredient-row")];
+  const ingredients = [];
+
+  for (const row of rows) {
+    const name = row.querySelector(".recipe-ingredient-search").value.trim();
+    const ingredient = state.ingredients[ingredientKey(name)];
+    const quantity = Number(row.querySelector(".recipe-ingredient-quantity").value);
+    if (!ingredient || quantity <= 0) {
+      if (allowIncomplete) continue;
+      return null;
+    }
+    ingredients.push({ key: ingredient.key, quantity });
+  }
+
+  return ingredients;
+}
+
+function macrosForIngredientRows(items) {
+  return items.reduce((totals, item) => {
+    const ingredient = state.ingredients[item.key];
+    if (!ingredient) return totals;
+    totals.calories += ingredient.calories * item.quantity;
+    totals.protein += ingredient.protein * item.quantity;
+    totals.carbs += ingredient.carbs * item.quantity;
+    totals.fat += ingredient.fat * item.quantity;
+    return totals;
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+function refreshRecipeMacroPreview() {
+  const macros = macrosForIngredientRows(collectRecipeIngredients(true) || []);
+  document.getElementById("recipe-macro-preview").innerHTML = [
+    macroChip("Calories", formatMacro(macros.calories)),
+    macroChip("Protein", `${formatMacro(macros.protein)}g`),
+    macroChip("Carbs", `${formatMacro(macros.carbs)}g`),
+    macroChip("Fat", `${formatMacro(macros.fat)}g`)
+  ].join("");
+}
+
+function refreshRecipeIngredientRows() {
+  document.querySelectorAll(".recipe-ingredient-row").forEach(updateRecipeIngredientRow);
+  refreshRecipeMacroPreview();
+}
+
+function fillIngredientForm(ingredient) {
+  if (!ingredient) return;
+  const form = document.getElementById("ingredient-form");
+  form.dataset.editingKey = ingredient.key;
+  document.getElementById("ingredient-name").value = ingredient.name;
+  document.getElementById("ingredient-serving").value = ingredient.serving;
+  document.getElementById("ingredient-calories").value = ingredient.calories;
+  document.getElementById("ingredient-protein").value = ingredient.protein;
+  document.getElementById("ingredient-carbs").value = ingredient.carbs;
+  document.getElementById("ingredient-fat").value = ingredient.fat;
+  document.getElementById("ingredient-product").value = ingredient.product;
+  document.getElementById("ingredient-url").value = ingredient.url;
+  document.getElementById("ingredient-name").focus();
+}
+
+function resetIngredientMacroInputs() {
+  ["ingredient-calories", "ingredient-protein", "ingredient-carbs", "ingredient-fat"].forEach((id) => {
+    document.getElementById(id).value = 0;
   });
 }
 
@@ -1029,11 +1219,11 @@ function updateDataControls() {
     "#recipe-form select",
     "#recipe-form textarea",
     "#recipe-form button",
-    "#walmart-map-form input",
-    "#walmart-map-form button",
+    "#ingredient-form input",
+    "#ingredient-form button",
     "[data-delete]",
-    "[data-delete-mapping]",
-    "[data-fill-mapping]"
+    "[data-delete-ingredient]",
+    "[data-edit-ingredient]"
   ];
 
   document.querySelectorAll(selectors.join(",")).forEach((element) => {
@@ -1041,11 +1231,11 @@ function updateDataControls() {
   });
 }
 
-function findMapping(ingredientName) {
-  return state.mappings?.[mappingKey(ingredientName)];
+function findIngredient(ingredientName) {
+  return state.ingredients?.[ingredientKey(ingredientName)];
 }
 
-function mappingKey(value) {
+function ingredientKey(value) {
   return String(value).trim().toLowerCase();
 }
 

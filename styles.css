@@ -450,8 +450,49 @@ textarea {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 
-.walmart-form-grid {
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(280px, 2fr);
+.ingredient-form-grid {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.ingredient-builder {
+  display: grid;
+  gap: 12px;
+}
+
+.ingredient-builder-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.recipe-ingredient-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.recipe-ingredient-row {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(200px, 2fr) minmax(110px, 0.6fr) minmax(120px, 1fr) auto;
+}
+
+.recipe-ingredient-row label {
+  display: grid;
+  gap: 6px;
+}
+
+.recipe-ingredient-serving {
+  color: var(--muted);
+  font-size: 0.82rem;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.recipe-macro-preview {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .recipe-card {
@@ -576,6 +617,12 @@ textarea {
   min-width: 0;
 }
 
+.mapping-row .mapping-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .mapping-row a {
   color: var(--accent);
   font-weight: 800;
@@ -664,5 +711,10 @@ textarea {
   .mapping-row {
     align-items: stretch;
     display: grid;
+  }
+
+  .recipe-ingredient-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 }
