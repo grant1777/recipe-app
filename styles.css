@@ -203,6 +203,10 @@ main {
   background: #eadfce;
 }
 
+.full-button {
+  width: 100%;
+}
+
 .danger-button {
   background: #f5dfd7;
   color: #8f2d20;

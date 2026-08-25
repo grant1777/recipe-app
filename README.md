@@ -18,10 +18,11 @@ Open `index.html` in a browser. Without Firebase configured, data saves to the b
 GitHub Pages cannot store private user data by itself, so the app is ready for Firebase Authentication and Firestore.
 
 1. Create a Firebase project.
-2. Enable **Authentication > Email/Password**.
+2. Enable **Authentication > Email/Password** and/or **Authentication > GitHub**.
 3. Create a **Cloud Firestore** database.
 4. Add your GitHub Pages domain to **Authentication > Settings > Authorized domains**.
 5. In `firebase-config.js`, replace `null` with the config from **Project settings > Your apps > Web app**.
+6. For GitHub sign-in, paste Firebase's callback URL into GitHub's OAuth app **Redirect URI** field, then paste the GitHub client ID and client secret back into Firebase.
 
 Example:
 

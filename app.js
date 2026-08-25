@@ -124,6 +124,8 @@ async function initializeCloud() {
       onAuthStateChanged: authModule.onAuthStateChanged,
       signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
       createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
+      GithubAuthProvider: authModule.GithubAuthProvider,
+      signInWithPopup: authModule.signInWithPopup,
       signOut: authModule.signOut
     };
 
@@ -145,19 +147,25 @@ async function handleAuthChange(user) {
 
   authEls.signedOut.hidden = true;
   authEls.signedIn.hidden = false;
-  authEls.accountEmail.textContent = user.email;
+  authEls.accountEmail.textContent = user.email || user.displayName || "GitHub account";
   authEls.syncStatus.textContent = "Loading";
 
   const ref = cloud.doc(cloud.db, "users", user.uid);
-  const snapshot = await cloud.getDoc(ref);
-  if (snapshot.exists()) {
-    state = normalizeState(snapshot.data());
-  } else {
-    await cloud.setDoc(ref, state);
+  try {
+    const snapshot = await cloud.getDoc(ref);
+    if (snapshot.exists()) {
+      state = normalizeState(snapshot.data());
+    } else {
+      await cloud.setDoc(ref, state);
+    }
+
+    saveLocalState();
+    authEls.syncStatus.textContent = "Synced";
+  } catch (error) {
+    authEls.syncStatus.textContent = "Sync error";
+    setAuthMessage(`Firestore sync failed: ${error.message}`);
   }
 
-  saveLocalState();
-  authEls.syncStatus.textContent = "Synced";
   renderAll();
 }
 
@@ -168,9 +176,14 @@ function saveState() {
   clearTimeout(saveTimer);
   authEls.syncStatus.textContent = "Saving";
   saveTimer = setTimeout(async () => {
-    const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
-    await cloud.setDoc(ref, state);
-    authEls.syncStatus.textContent = "Synced";
+    try {
+      const ref = cloud.doc(cloud.db, "users", cloud.auth.currentUser.uid);
+      await cloud.setDoc(ref, state);
+      authEls.syncStatus.textContent = "Synced";
+    } catch (error) {
+      authEls.syncStatus.textContent = "Sync error";
+      setAuthMessage(`Firestore save failed: ${error.message}`);
+    }
   }, 350);
 }
 
@@ -627,6 +640,7 @@ function getGroceryTexts() {
 function setupAuth() {
   document.getElementById("sign-in").addEventListener("click", () => authenticate("signIn"));
   document.getElementById("sign-up").addEventListener("click", () => authenticate("signUp"));
+  document.getElementById("sign-in-github").addEventListener("click", authenticateWithGitHub);
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
@@ -655,6 +669,21 @@ async function authenticate(mode) {
       await cloud.signInWithEmailAndPassword(cloud.auth, email, password);
       setAuthMessage("Signed in.");
     }
+  } catch (error) {
+    setAuthMessage(error.message);
+  }
+}
+
+async function authenticateWithGitHub() {
+  if (!cloud) {
+    setAuthMessage("Add Firebase config before using GitHub sign-in.");
+    return;
+  }
+
+  try {
+    const provider = new cloud.GithubAuthProvider();
+    await cloud.signInWithPopup(cloud.auth, provider);
+    setAuthMessage("Signed in with GitHub.");
   } catch (error) {
     setAuthMessage(error.message);
   }
