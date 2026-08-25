@@ -530,7 +530,7 @@ textarea {
 }
 
 .macro-row {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
 }
 
 .macro-chip {
@@ -571,6 +571,13 @@ textarea {
   list-style: none;
   min-height: 42px;
   padding: 8px 0;
+}
+
+.grocery-containers {
+  color: var(--muted);
+  font-weight: 800;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .grocery-list a {
@@ -635,7 +642,7 @@ textarea {
 }
 
 .macro-dashboard {
-  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .macro-card {
@@ -683,6 +690,10 @@ textarea {
   .macro-dashboard {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .macro-row {
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  }
 }
 
 @media (max-width: 680px) {
@@ -706,6 +717,10 @@ textarea {
   .grocery-list li {
     align-items: start;
     display: grid;
+  }
+
+  .grocery-containers {
+    margin-left: 0;
   }
 
   .mapping-row {

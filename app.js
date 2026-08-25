@@ -41,6 +41,16 @@ const starterRecipes = [
   }
 ];
 
+const nutrients = [
+  { key: "calories", label: "Calories", short: "Cal", unit: "" },
+  { key: "protein", label: "Protein", short: "Protein", unit: "g" },
+  { key: "carbs", label: "Carbs", short: "Carbs", unit: "g" },
+  { key: "fat", label: "Fat", short: "Fat", unit: "g" },
+  { key: "iron", label: "Iron", short: "Iron", unit: "mg" },
+  { key: "calcium", label: "Calcium", short: "Calcium", unit: "mg" },
+  { key: "potassium", label: "Potassium", short: "Potassium", unit: "mg" }
+];
+
 const authEls = {
   appShell: document.getElementById("app-shell"),
   signedOut: document.getElementById("signed-out-panel"),
@@ -125,10 +135,8 @@ function normalizeIngredientCatalog(value) {
           key,
           name,
           serving: item.serving || "1 serving",
-          calories: Number(item.calories || 0),
-          protein: Number(item.protein || 0),
-          carbs: Number(item.carbs || 0),
-          fat: Number(item.fat || 0),
+          ...nutrientValues(item),
+          servingsPerContainer: servingsPerContainer(item),
           product: item.product || name,
           url: item.url || walmartSearchUrl(name)
         }
@@ -418,6 +426,7 @@ function renderRecipes() {
   list.innerHTML = recipes
     .map((recipe) => {
       const macros = recipeMacros(recipe);
+      const containers = recipeContainers(recipe);
       return `
         <article class="recipe-card">
           <header>
@@ -428,10 +437,8 @@ function renderRecipes() {
             <button class="danger-button" data-delete="${recipe.id}" type="button">Delete</button>
           </header>
           <div class="macro-row">
-            ${macroChip("Cal", formatMacro(macros.calories))}
-            ${macroChip("Protein", `${formatMacro(macros.protein)}g`)}
-            ${macroChip("Carbs", `${formatMacro(macros.carbs)}g`)}
-            ${macroChip("Fat", `${formatMacro(macros.fat)}g`)}
+            ${nutrientChips(macros)}
+            ${catalogItems(recipe).length ? macroChip("Containers", formatQuantity(roundTo(containers, 2))) : ""}
           </div>
           <ul class="ingredients">
             ${recipe.ingredients.map((ingredient) => `<li>${escapeHtml(recipeIngredientText(ingredient))}</li>`).join("")}
@@ -463,32 +470,74 @@ function macroChip(label, value) {
   return `<div class="macro-chip"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function emptyNutrients() {
+  return Object.fromEntries(nutrients.map((nutrient) => [nutrient.key, 0]));
+}
+
+function nutrientValues(source) {
+  return Object.fromEntries(nutrients.map((nutrient) => [nutrient.key, Number(source?.[nutrient.key] || 0)]));
+}
+
+function addNutrients(totals, source, multiplier = 1) {
+  nutrients.forEach((nutrient) => {
+    totals[nutrient.key] += Number(source?.[nutrient.key] || 0) * multiplier;
+  });
+  return totals;
+}
+
+function nutrientText(nutrient, value) {
+  return `${formatMacro(value)}${nutrient.unit}`;
+}
+
+function nutrientChips(totals, labelKey = "short") {
+  return nutrients.map((nutrient) => macroChip(nutrient[labelKey], nutrientText(nutrient, totals[nutrient.key]))).join("");
+}
+
+function servingsPerContainer(source) {
+  const value = Number(source?.servingsPerContainer || 0);
+  return value > 0 ? value : 1;
+}
+
+function containersForServings(quantity, perContainer) {
+  const value = Number(perContainer || 0);
+  return Number(quantity || 0) / (value > 0 ? value : 1);
+}
+
+function formatContainers(containers) {
+  return `${formatQuantity(roundTo(containers, 2))} container${roundTo(containers, 2) === 1 ? "" : "s"}`;
+}
+
+function roundTo(value, places) {
+  const factor = 10 ** places;
+  return Math.round(Number(value || 0) * factor) / factor;
+}
+
 function recipeMacros(recipe) {
-  const catalogIngredients = recipe.ingredients?.filter((item) => item && typeof item === "object") || [];
-  if (!catalogIngredients.length) {
-    return {
-      calories: Number(recipe.calories || 0),
-      protein: Number(recipe.protein || 0),
-      carbs: Number(recipe.carbs || 0),
-      fat: Number(recipe.fat || 0)
-    };
-  }
+  const catalogIngredients = catalogItems(recipe);
+  if (!catalogIngredients.length) return nutrientValues(recipe);
 
   return catalogIngredients.reduce((totals, item) => {
     const ingredient = state.ingredients[item.key] || item;
-    const quantity = Number(item.quantity || 0);
-    totals.calories += Number(ingredient.calories || 0) * quantity;
-    totals.protein += Number(ingredient.protein || 0) * quantity;
-    totals.carbs += Number(ingredient.carbs || 0) * quantity;
-    totals.fat += Number(ingredient.fat || 0) * quantity;
-    return totals;
-  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    return addNutrients(totals, ingredient, Number(item.quantity || 0));
+  }, emptyNutrients());
+}
+
+function catalogItems(recipe) {
+  return recipe.ingredients?.filter((item) => item && typeof item === "object") || [];
+}
+
+function recipeContainers(recipe) {
+  return catalogItems(recipe).reduce((total, item) => {
+    const ingredient = state.ingredients[item.key] || item;
+    return total + containersForServings(item.quantity, ingredient.servingsPerContainer);
+  }, 0);
 }
 
 function recipeIngredientText(item) {
   if (typeof item === "string") return item;
   const ingredient = state.ingredients[item.key] || item;
-  return `${formatQuantity(Number(item.quantity || 0))} x ${ingredient.serving || "serving"} ${ingredient.name || "Ingredient"}`;
+  const base = `${formatQuantity(Number(item.quantity || 0))} x ${ingredient.serving || "serving"} ${ingredient.name || "Ingredient"}`;
+  return `${base} (${formatContainers(containersForServings(item.quantity, ingredient.servingsPerContainer))})`;
 }
 
 function formatMacro(value) {
@@ -532,9 +581,12 @@ function renderGroceries() {
           const ingredient = findIngredient(item.name);
           const link = ingredient?.url || walmartSearchUrl(item.name);
           const linkLabel = ingredient ? escapeHtml(ingredient.product) : "Search Walmart";
+          const perContainer = item.servingsPerContainer || ingredient?.servingsPerContainer;
+          const containers = perContainer && item.quantity ? containersForServings(item.quantity, perContainer) : 0;
           return `
             <li>
               <span>${escapeHtml(text)}</span>
+              ${containers ? `<span class="grocery-containers">Buy ${Math.ceil(containers)} (needs ${formatContainers(containers)})</span>` : ""}
               <a href="${escapeHtml(link)}" target="_blank" rel="noopener">${linkLabel}</a>
             </li>`;
         })
@@ -552,6 +604,7 @@ function parseRecipeIngredient(item) {
     name: ingredient.name,
     unit: ingredient.serving || "serving",
     quantity: Number(item.quantity || 0),
+    servingsPerContainer: servingsPerContainer(ingredient),
     count: 1
   };
 }
@@ -615,31 +668,25 @@ function formatQuantity(quantity) {
 }
 
 function renderMacros() {
-  const totals = plannedRecipes().reduce(
-    (sum, recipe) => {
-      const macros = recipeMacros(recipe);
-      return {
-        calories: sum.calories + macros.calories,
-        protein: sum.protein + macros.protein,
-        carbs: sum.carbs + macros.carbs,
-        fat: sum.fat + macros.fat
-      };
-    },
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
-  );
+  const planned = plannedRecipes();
+  const totals = planned.reduce((sum, recipe) => addNutrients(sum, recipeMacros(recipe)), emptyNutrients());
+  const containers = planned.reduce((sum, recipe) => sum + recipeContainers(recipe), 0);
 
   document.getElementById("macro-dashboard").innerHTML = [
-    macroCard("Calories", formatMacro(totals.calories)),
-    macroCard("Protein", `${formatMacro(totals.protein)}g`),
-    macroCard("Carbs", `${formatMacro(totals.carbs)}g`),
-    macroCard("Fat", `${formatMacro(totals.fat)}g`)
+    ...nutrients.map((nutrient) => macroCard(nutrient.label, nutrientText(nutrient, totals[nutrient.key]))),
+    macroCard("Containers", formatQuantity(roundTo(containers, 2)))
   ].join("");
 }
 
 function renderIngredients() {
   const ingredients = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
   document.getElementById("ingredient-options").innerHTML = ingredients
-    .map((ingredient) => `<option value="${escapeHtml(ingredient.name)}">${escapeHtml(ingredient.serving)}</option>`)
+    .map(
+      (ingredient) =>
+        `<option value="${escapeHtml(ingredient.name)}">${escapeHtml(ingredient.serving)} - ${formatQuantity(
+          servingsPerContainer(ingredient)
+        )} per container</option>`
+    )
     .join("");
 
   const list = document.getElementById("ingredient-list");
@@ -654,7 +701,8 @@ function renderIngredients() {
         <article class="mapping-row">
           <div>
             <strong>${escapeHtml(ingredient.name)} - ${escapeHtml(ingredient.serving)}</strong>
-            <span>${formatMacro(ingredient.calories)} cal - ${formatMacro(ingredient.protein)}g protein - ${formatMacro(ingredient.carbs)}g carbs - ${formatMacro(ingredient.fat)}g fat</span>
+            <span>${nutrients.map((nutrient) => `${nutrientText(nutrient, ingredient[nutrient.key])} ${nutrient.label.toLowerCase()}`).join(" - ")}</span>
+            <span>${formatQuantity(servingsPerContainer(ingredient))} servings per container</span>
             <a href="${escapeHtml(ingredient.url)}" target="_blank" rel="noopener">${escapeHtml(ingredient.product)}</a>
           </div>
           <div class="mapping-actions">
@@ -758,10 +806,10 @@ function setupForms() {
       key,
       name,
       serving: document.getElementById("ingredient-serving").value.trim(),
-      calories: Number(document.getElementById("ingredient-calories").value),
-      protein: Number(document.getElementById("ingredient-protein").value),
-      carbs: Number(document.getElementById("ingredient-carbs").value),
-      fat: Number(document.getElementById("ingredient-fat").value),
+      ...readNutrientInputs(),
+      servingsPerContainer: servingsPerContainer({
+        servingsPerContainer: document.getElementById("ingredient-servings-per-container").value
+      }),
       product: document.getElementById("ingredient-product").value.trim(),
       url: document.getElementById("ingredient-url").value.trim()
     };
@@ -887,22 +935,24 @@ function macrosForIngredientRows(items) {
   return items.reduce((totals, item) => {
     const ingredient = state.ingredients[item.key];
     if (!ingredient) return totals;
-    totals.calories += ingredient.calories * item.quantity;
-    totals.protein += ingredient.protein * item.quantity;
-    totals.carbs += ingredient.carbs * item.quantity;
-    totals.fat += ingredient.fat * item.quantity;
-    return totals;
-  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    return addNutrients(totals, ingredient, item.quantity);
+  }, emptyNutrients());
+}
+
+function containersForIngredientRows(items) {
+  return items.reduce((total, item) => {
+    const ingredient = state.ingredients[item.key];
+    if (!ingredient) return total;
+    return total + containersForServings(item.quantity, ingredient.servingsPerContainer);
+  }, 0);
 }
 
 function refreshRecipeMacroPreview() {
-  const macros = macrosForIngredientRows(collectRecipeIngredients(true) || []);
-  document.getElementById("recipe-macro-preview").innerHTML = [
-    macroChip("Calories", formatMacro(macros.calories)),
-    macroChip("Protein", `${formatMacro(macros.protein)}g`),
-    macroChip("Carbs", `${formatMacro(macros.carbs)}g`),
-    macroChip("Fat", `${formatMacro(macros.fat)}g`)
-  ].join("");
+  const items = collectRecipeIngredients(true) || [];
+  const macros = macrosForIngredientRows(items);
+  const containers = containersForIngredientRows(items);
+  document.getElementById("recipe-macro-preview").innerHTML =
+    nutrientChips(macros, "label") + macroChip("Containers", formatQuantity(roundTo(containers, 2)));
 }
 
 function refreshRecipeIngredientRows() {
@@ -916,19 +966,30 @@ function fillIngredientForm(ingredient) {
   form.dataset.editingKey = ingredient.key;
   document.getElementById("ingredient-name").value = ingredient.name;
   document.getElementById("ingredient-serving").value = ingredient.serving;
-  document.getElementById("ingredient-calories").value = ingredient.calories;
-  document.getElementById("ingredient-protein").value = ingredient.protein;
-  document.getElementById("ingredient-carbs").value = ingredient.carbs;
-  document.getElementById("ingredient-fat").value = ingredient.fat;
+  nutrients.forEach((nutrient) => {
+    document.getElementById(nutrientInputId(nutrient)).value = Number(ingredient[nutrient.key] || 0);
+  });
+  document.getElementById("ingredient-servings-per-container").value = servingsPerContainer(ingredient);
   document.getElementById("ingredient-product").value = ingredient.product;
   document.getElementById("ingredient-url").value = ingredient.url;
   document.getElementById("ingredient-name").focus();
 }
 
 function resetIngredientMacroInputs() {
-  ["ingredient-calories", "ingredient-protein", "ingredient-carbs", "ingredient-fat"].forEach((id) => {
-    document.getElementById(id).value = 0;
+  nutrients.forEach((nutrient) => {
+    document.getElementById(nutrientInputId(nutrient)).value = 0;
   });
+  document.getElementById("ingredient-servings-per-container").value = 1;
+}
+
+function nutrientInputId(nutrient) {
+  return `ingredient-${nutrient.key}`;
+}
+
+function readNutrientInputs() {
+  return Object.fromEntries(
+    nutrients.map((nutrient) => [nutrient.key, Number(document.getElementById(nutrientInputId(nutrient)).value)])
+  );
 }
 
 function getGroceryTexts() {
