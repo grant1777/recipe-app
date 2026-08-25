@@ -134,6 +134,7 @@ async function initializeCloud() {
       auth,
       db,
       doc: firestoreModule.doc,
+      writeBatch: firestoreModule.writeBatch,
       getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
       onSnapshot: firestoreModule.onSnapshot,
@@ -753,6 +754,7 @@ function setupAuth() {
     await copyText(currentInviteCode);
     setAuthMessage("Household invite code copied.");
   });
+  document.getElementById("leave-household").addEventListener("click", leaveHousehold);
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
@@ -761,6 +763,40 @@ function setupAuth() {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
   });
+}
+
+async function leaveHousehold() {
+  const user = cloud?.auth.currentUser;
+  if (!user || !currentHouseholdId) return;
+
+  const confirmed = window.confirm("Leave this household? You will need its invite code to join it again.");
+  if (!confirmed) return;
+
+  const householdId = currentHouseholdId;
+  const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
+  const userRef = cloud.doc(cloud.db, "users", user.uid);
+  authEls.syncStatus.textContent = "Leaving household";
+  setAccountStatus("checking", "Leaving household", "Updating Firebase...");
+
+  try {
+    const batch = cloud.writeBatch(cloud.db);
+    batch.set(userRef, { householdId: null }, { merge: true });
+    batch.delete(memberRef);
+    await batch.commit();
+
+    unsubscribeCloudState?.();
+    unsubscribeCloudState = null;
+    currentHouseholdId = null;
+    currentInviteCode = null;
+    cloudDataLoaded = false;
+    state = createSignedOutState();
+    authEls.householdCode.textContent = "Loading...";
+    showHouseholdSetup(user);
+    setHouseholdMessage("You left the household. Create another household or paste an invite code to join one.");
+    renderAll();
+  } catch (error) {
+    handleSyncError("Could not leave household", error);
+  }
 }
 
 async function createHousehold() {
