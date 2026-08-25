@@ -42,15 +42,17 @@ const starterRecipes = [
 ];
 
 const authEls = {
+  appShell: document.getElementById("app-shell"),
   signedOut: document.getElementById("signed-out-panel"),
   signedIn: document.getElementById("signed-in-panel"),
-  email: document.getElementById("auth-email"),
-  password: document.getElementById("auth-password"),
+  githubButton: document.getElementById("sign-in-github"),
+  gateStatus: document.getElementById("gate-status"),
   accountEmail: document.getElementById("account-email"),
   accountStatus: document.getElementById("account-status"),
   stateTitle: document.getElementById("auth-state-title"),
   stateDetail: document.getElementById("auth-state-detail"),
   message: document.getElementById("auth-message"),
+  accountMessage: document.getElementById("account-message"),
   syncStatus: document.getElementById("sync-status")
 };
 
@@ -129,8 +131,6 @@ async function initializeCloud() {
       setDoc: firestoreModule.setDoc,
       onSnapshot: firestoreModule.onSnapshot,
       onAuthStateChanged: authModule.onAuthStateChanged,
-      signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
-      createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
       GithubAuthProvider: authModule.GithubAuthProvider,
       getRedirectResult: authModule.getRedirectResult,
       signInWithPopup: authModule.signInWithPopup,
@@ -156,7 +156,9 @@ async function handleAuthChange(user) {
   if (!user) {
     state = createSignedOutState();
     authEls.signedOut.hidden = false;
+    authEls.appShell.hidden = true;
     authEls.signedIn.hidden = true;
+    authEls.githubButton.disabled = false;
     setAccountStatus("signed-out", "Not signed in", "Cloud sync is off");
     setAuthMessage("Sign in to load and save your Firebase data.");
     renderAll();
@@ -164,6 +166,7 @@ async function handleAuthChange(user) {
   }
 
   authEls.signedOut.hidden = true;
+  authEls.appShell.hidden = false;
   authEls.signedIn.hidden = false;
   authEls.accountEmail.textContent = user.email || user.displayName || "GitHub account";
   authEls.syncStatus.textContent = "Loading";
@@ -701,39 +704,11 @@ function getGroceryTexts() {
 }
 
 function setupAuth() {
-  document.getElementById("sign-in").addEventListener("click", () => authenticate("signIn"));
-  document.getElementById("sign-up").addEventListener("click", () => authenticate("signUp"));
   document.getElementById("sign-in-github").addEventListener("click", authenticateWithGitHub);
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
   });
-}
-
-async function authenticate(mode) {
-  if (!cloud) {
-    setAuthMessage("Add Firebase config before using logins.");
-    return;
-  }
-
-  const email = authEls.email.value.trim();
-  const password = authEls.password.value;
-  if (!email || !password) {
-    setAuthMessage("Enter an email and password.");
-    return;
-  }
-
-  try {
-    if (mode === "signUp") {
-      await cloud.createUserWithEmailAndPassword(cloud.auth, email, password);
-      setAuthMessage("Account created.");
-    } else {
-      await cloud.signInWithEmailAndPassword(cloud.auth, email, password);
-      setAuthMessage("Signed in.");
-    }
-  } catch (error) {
-    setAuthMessage(error.message);
-  }
 }
 
 async function authenticateWithGitHub() {
@@ -748,6 +723,7 @@ async function authenticateWithGitHub() {
   }
 
   try {
+    authEls.githubButton.disabled = true;
     setAccountStatus("checking", "Signing in", "Complete GitHub sign-in in the popup");
     setAuthMessage("Waiting for GitHub...");
     const provider = new cloud.GithubAuthProvider();
@@ -757,6 +733,7 @@ async function authenticateWithGitHub() {
       setAuthMessage("GitHub sign-in complete. Loading your Firebase data...");
     }
   } catch (error) {
+    authEls.githubButton.disabled = false;
     if (!cloud.auth.currentUser) {
       setAccountStatus("signed-out", "Not signed in", "Cloud sync is off");
     }
@@ -840,12 +817,14 @@ function formatShortDate(date) {
 
 function setAuthMessage(message) {
   authEls.message.textContent = message;
+  authEls.accountMessage.textContent = message;
 }
 
 function setAccountStatus(stateName, title, detail) {
   authEls.accountStatus.dataset.state = stateName;
   authEls.stateTitle.textContent = title;
   authEls.stateDetail.textContent = detail;
+  authEls.gateStatus.textContent = `${title}. ${detail}`;
 }
 
 function requireCloudWrite() {

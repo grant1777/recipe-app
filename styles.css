@@ -26,6 +26,50 @@ body {
   color: var(--ink);
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.auth-gate {
+  align-items: center;
+  background: #26352f;
+  color: #fbfaf7;
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.login-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 380px;
+  text-align: center;
+  width: 100%;
+}
+
+.login-panel h1 {
+  font-size: 2.5rem;
+  letter-spacing: 0;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.login-panel > p:not(.eyebrow) {
+  color: #d7cfc4;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.login-panel .eyebrow {
+  margin-bottom: -10px;
+}
+
+.login-panel button[disabled] {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 button,
 input,
 select,

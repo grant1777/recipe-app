@@ -18,7 +18,7 @@ Run the app through a local web server, such as `python -m http.server 8000`, th
 The app uses Firebase Authentication and Cloud Firestore as its only data store. Users must sign in before recipes, plans, or Walmart mappings can be changed.
 
 1. Create a Firebase project.
-2. Enable **Authentication > Email/Password** and/or **Authentication > GitHub**.
+2. Enable **Authentication > GitHub**.
 3. Create a **Cloud Firestore** database.
 4. Add your GitHub Pages domain to **Authentication > Settings > Authorized domains**.
 5. In `firebase-config.js`, replace `null` with the config from **Project settings > Your apps > Web app**.
