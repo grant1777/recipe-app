@@ -189,7 +189,11 @@
               </label>
               <label>
                 Serving size
-                <input id="ingredient-serving" required placeholder="4 oz" />
+                <div class="serving-size-inputs">
+                  <input id="ingredient-serving-amount" min="0" required step="0.01" type="number" placeholder="4" value="1" />
+                  <select id="ingredient-serving-unit"></select>
+                </div>
+                <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
               <label>
                 Calories

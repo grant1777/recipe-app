@@ -527,6 +527,16 @@ textarea {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 
+.serving-size-inputs {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(60px, 1fr) minmax(80px, 1.2fr);
+}
+
+.serving-unit-custom {
+  margin-top: 8px;
+}
+
 .ingredient-form-grid {
   grid-template-columns: repeat(4, minmax(150px, 1fr));
 }

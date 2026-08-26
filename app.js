@@ -51,6 +51,14 @@ const nutrients = [
   { key: "potassium", label: "Potassium", short: "Potassium", unit: "mg" }
 ];
 
+const servingUnits = [
+  { group: "Weight", units: ["g", "kg", "oz", "lb"] },
+  { group: "Volume", units: ["ml", "l", "tsp", "tbsp", "fl oz", "cup", "pt", "qt", "gal"] },
+  { group: "Count", units: ["piece", "slice", "serving", "can", "package", "scoop", "clove"] }
+];
+
+const customServingUnit = "__other__";
+
 const authEls = {
   appShell: document.getElementById("app-shell"),
   signedOut: document.getElementById("signed-out-panel"),
@@ -788,6 +796,7 @@ function renderAll() {
 }
 
 function setupForms() {
+  populateServingUnits();
   document.getElementById("recipe-form").addEventListener("submit", (event) => {
     event.preventDefault();
     if (!requireCloudWrite()) return;
@@ -829,7 +838,7 @@ function setupForms() {
     const ingredient = {
       key,
       name,
-      serving: document.getElementById("ingredient-serving").value.trim(),
+      serving: readServingInputs(),
       ...readNutrientInputs(),
       servingsPerContainer: servingsPerContainer({
         servingsPerContainer: document.getElementById("ingredient-servings-per-container").value
@@ -984,12 +993,82 @@ function refreshRecipeIngredientRows() {
   refreshRecipeMacroPreview();
 }
 
+function populateServingUnits() {
+  const select = document.getElementById("ingredient-serving-unit");
+  if (!select || select.options.length) return;
+  servingUnits.forEach((section) => {
+    const group = document.createElement("optgroup");
+    group.label = section.group;
+    section.units.forEach((unit) => {
+      const option = document.createElement("option");
+      option.value = unit;
+      option.textContent = unit;
+      group.appendChild(option);
+    });
+    select.appendChild(group);
+  });
+  const other = document.createElement("option");
+  other.value = customServingUnit;
+  other.textContent = "Other...";
+  select.appendChild(other);
+  select.value = "g";
+  select.addEventListener("change", syncServingUnitCustom);
+  syncServingUnitCustom();
+}
+
+function knownServingUnit(unit) {
+  return servingUnits.some((section) => section.units.includes(unit));
+}
+
+function syncServingUnitCustom() {
+  const select = document.getElementById("ingredient-serving-unit");
+  const custom = document.getElementById("ingredient-serving-unit-other");
+  if (!select || !custom) return;
+  const isCustom = select.value === customServingUnit;
+  custom.hidden = !isCustom;
+  custom.required = isCustom;
+  if (!isCustom) custom.value = "";
+}
+
+function parseServing(serving) {
+  const text = String(serving || "").trim();
+  const match = text.match(/^(\d*\.?\d+(?:\s*\/\s*\d*\.?\d+)?)\s*(.*)$/);
+  if (!match) return { amount: 1, unit: text || "serving" };
+  const [numerator, denominator] = match[1].split("/").map((part) => Number(part.trim()));
+  const amount = denominator ? numerator / denominator : numerator;
+  return { amount: roundTo(amount, 2), unit: match[2].trim() || "serving" };
+}
+
+function readServingInputs() {
+  const amount = Number(document.getElementById("ingredient-serving-amount").value || 0);
+  const select = document.getElementById("ingredient-serving-unit");
+  const unit =
+    select.value === customServingUnit
+      ? document.getElementById("ingredient-serving-unit-other").value.trim()
+      : select.value;
+  return `${formatQuantity(amount)} ${unit}`.trim();
+}
+
+function setServingInputs(serving) {
+  const { amount, unit } = parseServing(serving);
+  document.getElementById("ingredient-serving-amount").value = amount;
+  const select = document.getElementById("ingredient-serving-unit");
+  const custom = document.getElementById("ingredient-serving-unit-other");
+  if (knownServingUnit(unit)) {
+    select.value = unit;
+  } else {
+    select.value = customServingUnit;
+    custom.value = unit;
+  }
+  syncServingUnitCustom();
+}
+
 function fillIngredientForm(ingredient) {
   if (!ingredient) return;
   const form = document.getElementById("ingredient-form");
   form.dataset.editingKey = ingredient.key;
   document.getElementById("ingredient-name").value = ingredient.name;
-  document.getElementById("ingredient-serving").value = ingredient.serving;
+  setServingInputs(ingredient.serving);
   nutrients.forEach((nutrient) => {
     document.getElementById(nutrientInputId(nutrient)).value = Number(ingredient[nutrient.key] || 0);
   });
@@ -1004,6 +1083,7 @@ function resetIngredientMacroInputs() {
     document.getElementById(nutrientInputId(nutrient)).value = 0;
   });
   document.getElementById("ingredient-servings-per-container").value = 1;
+  setServingInputs("1 g");
 }
 
 function nutrientInputId(nutrient) {
