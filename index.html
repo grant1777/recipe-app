@@ -51,6 +51,12 @@
           <strong id="week-sidebar-title">This week</strong>
           <span id="planned-count">0 meals planned</span>
         </div>
+        <div class="household-members">
+          <strong>In your household <span id="household-member-count"></span></strong>
+          <ul id="household-members-list" aria-live="polite">
+            <li class="member-empty">Loading members...</li>
+          </ul>
+        </div>
         <div class="household-share">
           <strong>Household invite</strong>
           <code id="household-code">Loading...</code>
@@ -67,6 +73,7 @@
           <div id="signed-in-panel" hidden>
             <span id="account-email">Signed in</span>
             <span id="sync-status">Synced</span>
+            <button class="light-button" id="open-profile" type="button">Profile settings</button>
             <button class="danger-button" id="leave-household" type="button">Leave household</button>
             <button class="light-button" id="sign-out" type="button">Sign out</button>
           </div>
@@ -255,6 +262,31 @@
       </select>
     </template>
 
+    <dialog class="profile-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
+      <form id="profile-form" method="dialog">
+        <h2 id="profile-dialog-title">Your profile</h2>
+        <p class="profile-hint">Choose how you appear to everyone in your household.</p>
+
+        <div class="profile-preview">
+          <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
+          <div class="profile-photo-actions">
+            <label class="light-button file-button" for="profile-photo">Choose photo</label>
+            <input id="profile-photo" type="file" accept="image/*" />
+            <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
+          </div>
+        </div>
+
+        <label for="profile-name">Display name</label>
+        <input id="profile-name" maxlength="40" autocomplete="off" placeholder="Your name" />
+
+        <p id="profile-message" class="auth-message" aria-live="polite"></p>
+
+        <div class="profile-dialog-actions">
+          <button class="text-button" id="cancel-profile" type="button">Cancel</button>
+          <button class="primary-button" id="save-profile" type="button">Save profile</button>
+        </div>
+      </form>
+    </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
     <script src="app.js?v=20260825-5"></script>
   </body>

@@ -58,6 +58,13 @@ const authEls = {
   householdAccount: document.getElementById("household-account"),
   householdMessage: document.getElementById("household-message"),
   householdCode: document.getElementById("household-code"),
+  householdMembersList: document.getElementById("household-members-list"),
+  householdMemberCount: document.getElementById("household-member-count"),
+  profileDialog: document.getElementById("profile-dialog"),
+  profileAvatar: document.getElementById("profile-avatar"),
+  profileName: document.getElementById("profile-name"),
+  profilePhoto: document.getElementById("profile-photo"),
+  profileMessage: document.getElementById("profile-message"),
   signedIn: document.getElementById("signed-in-panel"),
   githubButton: document.getElementById("sign-in-github"),
   gateStatus: document.getElementById("gate-status"),
@@ -78,6 +85,10 @@ let cloudDataLoaded = false;
 let unsubscribeCloudState = null;
 let currentHouseholdId = null;
 let currentInviteCode = null;
+let unsubscribeMembers = null;
+let householdMembers = [];
+let householdOwnerUid = null;
+let profileDraftPhoto = "";
 
 function blankPlan() {
   return Object.fromEntries(days.map((day) => [day, Object.fromEntries(meals.map((meal) => [meal, ""]))]));
@@ -168,6 +179,7 @@ async function initializeCloud() {
       auth,
       db,
       doc: firestoreModule.doc,
+      collection: firestoreModule.collection,
       writeBatch: firestoreModule.writeBatch,
       getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
@@ -196,6 +208,7 @@ async function handleAuthChange(user) {
   currentInviteCode = null;
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
+  clearHouseholdMembers();
 
   if (!user) {
     state = createSignedOutState();
@@ -215,6 +228,7 @@ async function handleAuthChange(user) {
   authEls.appShell.hidden = true;
   authEls.signedIn.hidden = true;
   authEls.accountEmail.textContent = user.email || user.displayName || "GitHub account";
+  void applyStoredProfileLabel(user);
   setAccountStatus("checking", "Signed in", "Finding your household...");
   setAuthMessage("");
 
@@ -233,6 +247,12 @@ async function handleAuthChange(user) {
   }
 }
 
+async function applyStoredProfileLabel(user) {
+  const profile = await loadStoredProfile(user);
+  if (cloud?.auth.currentUser?.uid !== user.uid) return;
+  if (profile.displayName) authEls.accountEmail.textContent = profile.displayName;
+}
+
 function showHouseholdSetup(user) {
   authEls.householdAccount.textContent = `Signed in as ${user.email || user.displayName || "GitHub account"}. Create a household or join with an invite code.`;
   authEls.householdPanel.hidden = false;
@@ -248,6 +268,8 @@ function subscribeToHousehold(householdId) {
   authEls.appShell.hidden = true;
   authEls.syncStatus.textContent = "Loading household";
 
+  subscribeToMembers(householdId);
+
   const ref = cloud.doc(cloud.db, "households", householdId);
   unsubscribeCloudState = cloud.onSnapshot(ref, { includeMetadataChanges: true }, (snapshot) => {
     if (!snapshot.exists()) {
@@ -256,6 +278,8 @@ function subscribeToHousehold(householdId) {
     }
 
     const household = snapshot.data();
+    householdOwnerUid = household.ownerUid || null;
+    renderHouseholdMembers();
     state = normalizeState(household);
     currentInviteCode = `${householdId}.${household.inviteToken}`;
     authEls.householdCode.textContent = currentInviteCode;
@@ -1006,6 +1030,20 @@ function setupAuth() {
     setAuthMessage("Household invite code copied.");
   });
   document.getElementById("leave-household").addEventListener("click", leaveHousehold);
+  document.getElementById("open-profile").addEventListener("click", openProfileDialog);
+  document.getElementById("cancel-profile").addEventListener("click", () => authEls.profileDialog.close());
+  document.getElementById("save-profile").addEventListener("click", saveProfile);
+  document.getElementById("remove-profile-photo").addEventListener("click", () => {
+    profileDraftPhoto = "";
+    renderProfilePreview();
+    setProfileMessage("Photo removed. Save your profile to apply it.");
+  });
+  authEls.profilePhoto.addEventListener("change", handleProfilePhotoChange);
+  authEls.profileName.addEventListener("input", renderProfilePreview);
+  document.getElementById("profile-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveProfile();
+  });
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
@@ -1037,6 +1075,7 @@ async function leaveHousehold() {
 
     unsubscribeCloudState?.();
     unsubscribeCloudState = null;
+    clearHouseholdMembers();
     currentHouseholdId = null;
     currentInviteCode = null;
     cloudDataLoaded = false;
@@ -1065,13 +1104,14 @@ async function createHousehold() {
     const existingState = normalizeState(userSnapshot.data());
     const householdRef = cloud.doc(cloud.db, "households", householdId);
     const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
+    const profile = userSnapshot.data()?.profile || {};
 
     await cloud.setDoc(householdRef, {
       ...existingState,
       ownerUid: user.uid,
       inviteToken
     });
-    await cloud.setDoc(memberRef, memberRecord(user, inviteToken));
+    await cloud.setDoc(memberRef, memberRecord(user, inviteToken, profile));
     await cloud.setDoc(userRef, { householdId }, { merge: true });
     subscribeToHousehold(householdId);
   } catch (error) {
@@ -1106,7 +1146,8 @@ async function joinHousehold(event) {
   try {
     const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
     const userRef = cloud.doc(cloud.db, "users", user.uid);
-    await cloud.setDoc(memberRef, memberRecord(user, inviteToken));
+    const profile = await loadStoredProfile(user);
+    await cloud.setDoc(memberRef, memberRecord(user, inviteToken, profile));
     await cloud.setDoc(userRef, { householdId }, { merge: true });
     event.target.reset();
     subscribeToHousehold(householdId);
@@ -1116,13 +1157,232 @@ async function joinHousehold(event) {
   }
 }
 
-function memberRecord(user, inviteToken) {
+function subscribeToMembers(householdId) {
+  unsubscribeMembers?.();
+  householdMembers = [];
+  setMembersPlaceholder("Loading members...");
+
+  const membersRef = cloud.collection(cloud.db, "households", householdId, "members");
+  unsubscribeMembers = cloud.onSnapshot(membersRef, (snapshot) => {
+    householdMembers = snapshot.docs.map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }));
+    renderHouseholdMembers();
+  }, () => {
+    householdMembers = [];
+    setMembersPlaceholder("Could not load the member list.");
+  });
+}
+
+function clearHouseholdMembers() {
+  unsubscribeMembers?.();
+  unsubscribeMembers = null;
+  householdMembers = [];
+  householdOwnerUid = null;
+  setMembersPlaceholder("Loading members...");
+}
+
+function setMembersPlaceholder(text) {
+  if (!authEls.householdMembersList) return;
+  authEls.householdMemberCount.textContent = "";
+  authEls.householdMembersList.replaceChildren(createMemberPlaceholder(text));
+}
+
+function createMemberPlaceholder(text) {
+  const item = document.createElement("li");
+  item.className = "member-empty";
+  item.textContent = text;
+  return item;
+}
+
+function renderHouseholdMembers() {
+  if (!authEls.householdMembersList) return;
+
+  if (!householdMembers.length) {
+    setMembersPlaceholder("No members yet.");
+    return;
+  }
+
+  const currentUid = cloud?.auth.currentUser?.uid;
+  const sorted = [...householdMembers].sort((a, b) => {
+    const ownerDiff = Number(b.uid === householdOwnerUid) - Number(a.uid === householdOwnerUid);
+    if (ownerDiff) return ownerDiff;
+    return memberName(a).localeCompare(memberName(b));
+  });
+
+  authEls.householdMemberCount.textContent = `(${sorted.length})`;
+  authEls.householdMembersList.replaceChildren(
+    ...sorted.map((member) => {
+      const item = document.createElement("li");
+      item.className = "member-row";
+
+      const avatar = document.createElement("span");
+      avatar.className = "member-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      applyAvatar(avatar, member);
+      item.append(avatar);
+
+      const name = document.createElement("span");
+      name.className = "member-name";
+      name.textContent = memberName(member) + (member.uid === currentUid ? " (you)" : "");
+      item.append(name);
+
+      if (member.email && member.email !== memberName(member)) {
+        const email = document.createElement("span");
+        email.className = "member-email";
+        email.textContent = member.email;
+        item.append(email);
+      }
+
+      if (member.uid === householdOwnerUid) {
+        const badge = document.createElement("span");
+        badge.className = "member-badge";
+        badge.textContent = "Owner";
+        item.append(badge);
+      }
+
+      return item;
+    })
+  );
+}
+
+function memberName(member) {
+  return member.displayName || member.email || "Household member";
+}
+
+function memberRecord(user, inviteToken, profile = {}) {
   return {
     uid: user.uid,
     email: user.email || "",
-    displayName: user.displayName || "GitHub account",
+    displayName: profile.displayName || user.displayName || "GitHub account",
+    photoUrl: profile.photoUrl || "",
     inviteToken
   };
+}
+
+function currentMember() {
+  const uid = cloud?.auth.currentUser?.uid;
+  return householdMembers.find((member) => member.uid === uid) || null;
+}
+
+function openProfileDialog() {
+  const user = cloud?.auth.currentUser;
+  if (!user || !authEls.profileDialog) return;
+
+  const member = currentMember();
+  profileDraftPhoto = member?.photoUrl || "";
+  authEls.profileName.value = member?.displayName || user.displayName || "";
+  authEls.profilePhoto.value = "";
+  setProfileMessage("");
+  renderProfilePreview();
+  authEls.profileDialog.showModal();
+}
+
+function renderProfilePreview() {
+  const name = authEls.profileName.value.trim() || cloud?.auth.currentUser?.displayName || "Household member";
+  applyAvatar(authEls.profileAvatar, { displayName: name, photoUrl: profileDraftPhoto });
+}
+
+async function handleProfilePhotoChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    setProfileMessage("Choose an image file.");
+    event.target.value = "";
+    return;
+  }
+
+  setProfileMessage("Preparing your photo...");
+  try {
+    profileDraftPhoto = await resizeImageToDataUrl(file, 160);
+    renderProfilePreview();
+    setProfileMessage("Photo ready. Save your profile to share it.");
+  } catch (error) {
+    setProfileMessage("Could not read that image: " + error.message);
+  } finally {
+    event.target.value = "";
+  }
+}
+
+async function saveProfile() {
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+
+  const displayName = authEls.profileName.value.trim();
+  if (!displayName) {
+    setProfileMessage("Add a display name.");
+    return;
+  }
+
+  const profile = { displayName, photoUrl: profileDraftPhoto || "" };
+  setProfileMessage("Saving your profile...");
+
+  try {
+    const userRef = cloud.doc(cloud.db, "users", user.uid);
+    await cloud.setDoc(userRef, { profile }, { merge: true });
+
+    if (currentHouseholdId) {
+      const memberRef = cloud.doc(cloud.db, "households", currentHouseholdId, "members", user.uid);
+      await cloud.setDoc(memberRef, profile, { merge: true });
+    }
+
+    authEls.accountEmail.textContent = displayName;
+    authEls.profileDialog.close();
+  } catch (error) {
+    setProfileMessage("Could not save your profile: " + error.message);
+  }
+}
+
+async function loadStoredProfile(user) {
+  try {
+    const snapshot = await cloud.getDoc(cloud.doc(cloud.db, "users", user.uid));
+    const profile = snapshot.data()?.profile;
+    return profile && typeof profile === "object" ? profile : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function resizeImageToDataUrl(file, size) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("the file could not be read"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("the file is not a readable image"));
+      image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        const scale = Math.max(size / image.width, size / image.height);
+        const width = image.width * scale;
+        const height = image.height * scale;
+        context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function setProfileMessage(message) {
+  if (authEls.profileMessage) authEls.profileMessage.textContent = message;
+}
+
+function applyAvatar(element, member) {
+  const photoUrl = member.photoUrl || "";
+  element.replaceChildren();
+  element.style.backgroundImage = photoUrl ? 'url("' + photoUrl + '")' : "";
+  element.classList.toggle("has-photo", Boolean(photoUrl));
+  if (!photoUrl) element.textContent = memberInitials(memberName(member));
+}
+
+function memberInitials(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2);
+  return letters.toUpperCase();
 }
 
 function setHouseholdControlsDisabled(disabled) {
