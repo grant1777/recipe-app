@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260827-14" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -45,7 +45,7 @@
           <button class="tab-button" data-tab="recipes" type="button">Recipes</button>
           <button class="tab-button" data-tab="groceries" type="button">Groceries</button>
           <button class="tab-button" data-tab="ingredients" type="button">Ingredients</button>
-          <button class="tab-button" data-tab="macros" type="button">Macros</button>
+          <button class="tab-button nutrition-only" data-tab="macros" type="button">Macros</button>
         </nav>
         <div class="household-note">
           <strong id="week-sidebar-title">This week</strong>
@@ -56,11 +56,6 @@
           <ul id="household-members-list" aria-live="polite">
             <li class="member-empty">Loading members...</li>
           </ul>
-        </div>
-        <div class="household-share">
-          <strong>Household invite</strong>
-          <code id="household-code">Loading...</code>
-          <button class="light-button" id="copy-household-code" type="button">Copy invite code</button>
         </div>
         <section class="auth-panel" aria-label="Account">
           <div class="account-status" id="account-status" data-state="checking" role="status" aria-live="polite">
@@ -73,8 +68,7 @@
           <div id="signed-in-panel" hidden>
             <span id="account-email">Signed in</span>
             <span id="sync-status">Synced</span>
-            <button class="light-button" id="open-profile" type="button">Profile settings</button>
-            <button class="danger-button" id="leave-household" type="button">Leave household</button>
+            <button class="light-button" id="open-profile" type="button">Settings</button>
             <button class="light-button" id="sign-out" type="button">Sign out</button>
           </div>
           <p id="account-message" class="auth-message" aria-live="polite"></p>
@@ -95,6 +89,11 @@
               <button class="primary-button" id="clear-week" type="button">Clear week</button>
             </div>
           </div>
+          <div class="planner-toolbar">
+            <label for="active-planner">Planner</label>
+            <select id="active-planner" aria-label="Active planner"></select>
+            <button class="secondary-button" id="manage-planners" type="button">Household planners</button>
+          </div>
           <div class="week-strip">
             <strong id="week-range">Week range</strong>
           </div>
@@ -104,14 +103,35 @@
         <section class="view" id="recipes-view" aria-labelledby="recipes-title">
           <div class="view-header">
             <div>
-              <p class="eyebrow">Recipe box</p>
-              <h2 id="recipes-title">Add and organize recipes</h2>
+              <p class="eyebrow">Recipe collection</p>
+              <h2 id="recipes-title">Recipes</h2>
             </div>
-            <div class="filter-row">
-              <label for="category-filter">Category</label>
-              <select id="category-filter">
-                <option value="all">All recipes</option>
-              </select>
+            <div class="recipe-page-actions">
+              <label class="recipe-search" for="recipe-search">
+                Search recipes
+                <input id="recipe-search" type="search" placeholder="Search by name or category" />
+              </label>
+              <button class="primary-button" id="open-recipe-editor" type="button">+ Add recipe</button>
+            </div>
+          </div>
+          <div class="recipe-catalogue" id="recipe-catalogue"></div>
+          <article class="recipe-detail-page" id="recipe-detail" hidden></article>
+        </section>
+
+        <section class="view" id="recipe-editor-view" aria-labelledby="recipe-editor-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Recipe editor</p>
+              <h2 id="recipe-editor-title">Create and manage recipes</h2>
+            </div>
+            <div class="recipe-editor-header-actions">
+              <div class="filter-row">
+                <label for="category-filter">Category</label>
+                <select id="category-filter">
+                  <option value="all">All recipes</option>
+                </select>
+              </div>
+              <button class="secondary-button" id="close-recipe-editor" type="button">Back to recipes</button>
             </div>
           </div>
 
@@ -148,15 +168,27 @@
               <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
             </div>
 
+            <div class="recipe-step-builder">
+              <div class="ingredient-builder-header">
+                <strong>Instructions</strong>
+                <button class="secondary-button" id="add-recipe-step" type="button">Add step</button>
+              </div>
+              <p class="recipe-step-hint">Mention an ingredient by name to make its recipe amount interactive.</p>
+              <div class="recipe-step-rows" id="recipe-step-rows"></div>
+            </div>
+
             <label>
               Notes
               <textarea id="recipe-notes" placeholder="Sauce, prep notes, oven temp, picky-eater edits"></textarea>
             </label>
 
-            <button class="primary-button" type="submit">Add recipe</button>
+            <div class="recipe-form-actions">
+              <button class="text-button" id="cancel-recipe-edit" type="button" hidden>Cancel editing</button>
+              <button class="primary-button" id="save-recipe" type="submit">Add recipe</button>
+            </div>
           </form>
 
-          <div class="recipe-list" id="recipe-list"></div>
+          <div class="recipe-editor-list" id="recipe-list"></div>
         </section>
 
         <section class="view" id="groceries-view" aria-labelledby="groceries-title">
@@ -195,41 +227,37 @@
                 </div>
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Calories
                 <input id="ingredient-calories" min="0" required type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Protein (g)
                 <input id="ingredient-protein" min="0" required step="0.1" type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Carbs (g)
                 <input id="ingredient-carbs" min="0" required step="0.1" type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Fat (g)
                 <input id="ingredient-fat" min="0" required step="0.1" type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Iron (mg)
                 <input id="ingredient-iron" min="0" required step="0.1" type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Calcium (mg)
                 <input id="ingredient-calcium" min="0" required step="1" type="number" value="0" />
               </label>
-              <label>
+              <label class="nutrition-only">
                 Potassium (mg)
                 <input id="ingredient-potassium" min="0" required step="1" type="number" value="0" />
               </label>
               <label>
                 Servings per container
                 <input id="ingredient-servings-per-container" min="0.01" required step="0.01" type="number" value="1" />
-              </label>
-              <label>
-                Walmart product name
-                <input id="ingredient-product" required placeholder="Great Value Chicken Breast" />
               </label>
               <label>
                 Walmart product URL
@@ -248,7 +276,7 @@
           </div>
         </section>
 
-        <section class="view" id="macros-view" aria-labelledby="macros-title">
+        <section class="view nutrition-only" id="macros-view" aria-labelledby="macros-title">
           <div class="view-header">
             <div>
               <p class="eyebrow">Nutrition totals</p>
@@ -266,32 +294,107 @@
       </select>
     </template>
 
-    <dialog class="profile-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
+    <dialog class="profile-dialog settings-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
       <form id="profile-form" method="dialog">
-        <h2 id="profile-dialog-title">Your profile</h2>
-        <p class="profile-hint">Choose how you appear to everyone in your household.</p>
+        <h2 id="profile-dialog-title">Settings</h2>
 
-        <div class="profile-preview">
-          <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
-          <div class="profile-photo-actions">
-            <label class="light-button file-button" for="profile-photo">Choose photo</label>
-            <input id="profile-photo" type="file" accept="image/*" />
-            <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
+        <section class="settings-section" aria-labelledby="profile-settings-title">
+          <h3 id="profile-settings-title">Profile</h3>
+          <p class="profile-hint">Choose how you appear to everyone in your household.</p>
+
+          <div class="profile-preview">
+            <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
+            <div class="profile-photo-actions">
+              <label class="light-button file-button" for="profile-photo">Choose photo</label>
+              <input id="profile-photo" type="file" accept="image/*" />
+              <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
+            </div>
           </div>
-        </div>
 
-        <label for="profile-name">Display name</label>
-        <input id="profile-name" maxlength="40" autocomplete="off" placeholder="Your name" />
+          <label for="profile-name">Display name</label>
+          <input id="profile-name" maxlength="40" autocomplete="off" placeholder="Your name" />
 
-        <p id="profile-message" class="auth-message" aria-live="polite"></p>
+          <label class="settings-toggle" for="hide-nutrition">
+            <span>
+              <strong>Hide calories and macros</strong>
+              <small>Remove nutrition numbers and the Macros page from your view.</small>
+            </span>
+            <input id="hide-nutrition" type="checkbox" />
+          </label>
+
+          <p id="profile-message" class="auth-message" aria-live="polite"></p>
+        </section>
+
+        <section class="settings-section" aria-labelledby="household-settings-title">
+          <h3 id="household-settings-title">Household</h3>
+          <p class="profile-hint">Share this private code with someone you want to invite.</p>
+          <div class="settings-invite">
+            <code id="household-code">Loading...</code>
+            <button class="secondary-button" id="copy-household-code" type="button">Copy invite code</button>
+          </div>
+          <p id="settings-household-message" class="auth-message" aria-live="polite"></p>
+          <div class="settings-danger-zone">
+            <div>
+              <strong>Leave household</strong>
+              <p class="profile-hint">You will need an invite code to join it again.</p>
+            </div>
+            <button class="danger-button" id="leave-household" type="button">Leave</button>
+          </div>
+        </section>
 
         <div class="profile-dialog-actions">
-          <button class="text-button" id="cancel-profile" type="button">Cancel</button>
+          <button class="text-button" id="cancel-profile" type="button">Close</button>
           <button class="primary-button" id="save-profile" type="button">Save profile</button>
         </div>
       </form>
     </dialog>
+
+    <dialog class="profile-dialog member-profile-dialog" id="member-profile-dialog" aria-labelledby="member-profile-name">
+      <form method="dialog">
+        <div class="member-profile-heading">
+          <span class="member-avatar large" id="member-profile-avatar" aria-hidden="true"></span>
+          <div>
+            <p class="eyebrow">Household profile</p>
+            <h2 id="member-profile-name">Household member</h2>
+          </div>
+        </div>
+        <dl class="member-profile-details">
+          <div>
+            <dt>Email</dt>
+            <dd id="member-profile-email">Not available</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd id="member-profile-role">Member</dd>
+          </div>
+        </dl>
+        <div class="profile-dialog-actions">
+          <button class="primary-button" type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="profile-dialog planner-dialog" id="planner-dialog" aria-labelledby="planner-dialog-title">
+      <div class="planner-dialog-content">
+        <div>
+          <p class="eyebrow">Household</p>
+          <h2 id="planner-dialog-title">Planners</h2>
+          <p class="profile-hint">Create separate planning groups for different people in your household.</p>
+        </div>
+        <form class="create-planner-form" id="create-planner-form">
+          <label for="planner-name">New planner name</label>
+          <div>
+            <input id="planner-name" maxlength="50" required placeholder="Grant and Alex" />
+            <button class="primary-button" type="submit">Create</button>
+          </div>
+        </form>
+        <div class="planner-directory" id="planner-directory" aria-live="polite"></div>
+        <div class="profile-dialog-actions">
+          <button class="primary-button" id="close-planner-dialog" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260825-5"></script>
+    <script src="app.js?v=20260827-13"></script>
   </body>
 </html>
