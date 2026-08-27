@@ -1783,6 +1783,7 @@ function setupAuth() {
     event.target.reset();
   });
   document.getElementById("open-profile").addEventListener("click", openProfileDialog);
+  document.getElementById("mobile-open-settings").addEventListener("click", openProfileDialog);
   document.getElementById("cancel-profile").addEventListener("click", () => authEls.profileDialog.close());
   document.getElementById("save-profile").addEventListener("click", saveProfile);
   document.getElementById("remove-profile-photo").addEventListener("click", () => {

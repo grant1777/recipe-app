@@ -131,6 +131,10 @@ button {
   min-height: 100vh;
 }
 
+.mobile-app-header {
+  display: none;
+}
+
 .sidebar {
   align-content: start;
   background: #26352f;
@@ -1203,6 +1207,35 @@ body.hide-nutrition .nutrition-only {
 @media (max-width: 680px) {
   .app-shell {
     padding-bottom: calc(74px + env(safe-area-inset-bottom));
+  }
+
+  .sidebar {
+    display: contents;
+  }
+
+  .sidebar > :not(.tabs) {
+    display: none;
+  }
+
+  .mobile-app-header {
+    align-items: center;
+    background: rgba(255, 253, 249, 0.96);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    padding: calc(10px + env(safe-area-inset-top)) 20px 10px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .mobile-app-header strong {
+    font-size: 1.05rem;
+  }
+
+  .mobile-app-header button {
+    min-height: 36px;
+    padding: 7px 11px;
   }
 
   main {

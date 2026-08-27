@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css?v=20260827-15" />
+    <link rel="stylesheet" href="styles.css?v=20260827-16" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -35,6 +35,10 @@
     </section>
 
     <div class="app-shell" id="app-shell" hidden>
+      <header class="mobile-app-header">
+        <strong>Recipe Planner</strong>
+        <button class="secondary-button" id="mobile-open-settings" type="button" aria-label="Open settings">Settings</button>
+      </header>
       <aside class="sidebar" aria-label="App navigation">
         <div>
           <p class="eyebrow">Household</p>
@@ -395,6 +399,6 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260827-13"></script>
+    <script src="app.js?v=20260827-16"></script>
   </body>
 </html>
