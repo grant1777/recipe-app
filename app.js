@@ -1,5 +1,11 @@
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const meals = ["Breakfast", "Lunch", "Dinner", "Snack"];
+const meals = ["Breakfast", "Lunch", "Dinner"];
+const TAKEOUT_PREFIX = "takeout:";
+const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
+const RECIPE_PHOTO_MAX_WIDTH = 720;
+const INGREDIENT_PHOTO_MAX_WIDTH = 480;
+const FIRESTORE_DOC_LIMIT = 1000000;
+const FIRESTORE_DOC_WARNING = 800000;
 const firebaseConfig = window.firebaseConfig;
 
 const starterRecipes = [
@@ -150,6 +156,13 @@ let unsubscribeMembers = null;
 let householdMembers = [];
 let householdOwnerUid = null;
 let profileDraftPhoto = "";
+let recipeDraftImage = "";
+let recipeDraftBlob = null;
+let recipeDraftPreview = "";
+let recipeDraftNutrition = null;
+let ingredientDraftImage = "";
+let ingredientDraftBlob = null;
+let ingredientDraftPreview = "";
 let hideNutritionPreference = false;
 let activePlannerId = null;
 let openRecipeId = null;
@@ -254,9 +267,11 @@ async function initializeCloud() {
     const appModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
     const authModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js");
     const firestoreModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
+    const storageModule = await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js");
     const app = appModule.initializeApp(firebaseConfig);
     const auth = authModule.getAuth(app);
     const db = firestoreModule.getFirestore(app);
+    const storage = storageModule.getStorage(app);
 
     await authModule.setPersistence(auth, authModule.browserLocalPersistence);
 
@@ -273,7 +288,12 @@ async function initializeCloud() {
       GithubAuthProvider: authModule.GithubAuthProvider,
       getRedirectResult: authModule.getRedirectResult,
       signInWithPopup: authModule.signInWithPopup,
-      signOut: authModule.signOut
+      signOut: authModule.signOut,
+      storage,
+      storageRef: storageModule.ref,
+      uploadBytes: storageModule.uploadBytes,
+      getDownloadURL: storageModule.getDownloadURL,
+      deleteObject: storageModule.deleteObject
     };
 
     cloud.onAuthStateChanged(auth, handleAuthChange);
@@ -427,13 +447,30 @@ function saveState() {
 async function saveCloudState(errorPrefix = "Firestore save failed") {
   if (!canWriteCloudData()) return false;
 
+  const size = approximateStateSize();
+  if (size > FIRESTORE_DOC_LIMIT) {
+    setAuthMessage("This household is over the 1MB Firestore document limit - remove some recipes and try again.");
+    return false;
+  }
+
   try {
     const ref = cloud.doc(cloud.db, "households", currentHouseholdId);
     await cloud.setDoc(ref, state, { merge: true });
+    if (size > FIRESTORE_DOC_WARNING) {
+      setAuthMessage("Saved. This household is close to the 1MB Firestore document limit.");
+    }
     return true;
   } catch (error) {
     handleSyncError(errorPrefix, error);
     return false;
+  }
+}
+
+function approximateStateSize() {
+  try {
+    return new Blob([JSON.stringify(state)]).size;
+  } catch (error) {
+    return 0;
   }
 }
 
@@ -505,13 +542,28 @@ function recipeById(id) {
   return state.recipes.find((recipe) => recipe.id === id);
 }
 
-function plannedRecipeIds() {
+function isTakeoutValue(value) {
+  return typeof value === "string" && value.startsWith(TAKEOUT_PREFIX);
+}
+
+function takeoutName(value) {
+  return isTakeoutValue(value) ? value.slice(TAKEOUT_PREFIX.length) : "";
+}
+
+function takeoutValue(name = "") {
+  return `${TAKEOUT_PREFIX}${name.trim()}`;
+}
+
+function plannedSlotValues() {
   const plan = getCurrentPlan();
   return days.flatMap((day) => meals.map((meal) => plan[day]?.[meal]).filter(Boolean));
 }
 
 function plannedRecipes() {
-  return plannedRecipeIds().map(recipeById).filter(Boolean);
+  return plannedSlotValues()
+    .filter((value) => !isTakeoutValue(value))
+    .map(recipeById)
+    .filter(Boolean);
 }
 
 function renderTabs() {
@@ -546,15 +598,29 @@ function renderPlanner() {
     .map((day, index) => {
       const date = addDays(selectedWeekStart, index);
       const slots = meals
-        .map(
-          (meal) => `
+        .map((meal) => {
+          const value = plan[day]?.[meal] || "";
+          const takeout = isTakeoutValue(value);
+          return `
             <div class="meal-slot">
               <label for="${day}-${meal}">${meal}</label>
-              <select id="${day}-${meal}" data-day="${day}" data-meal="${meal}">
-                ${recipeOptions(plan[day]?.[meal] || "")}
-              </select>
-            </div>`
-        )
+              <div class="meal-slot-controls" data-takeout="${takeout}">
+                <select id="${day}-${meal}" data-day="${day}" data-meal="${meal}">
+                  ${recipeOptions(value)}
+                </select>
+                <input
+                  class="takeout-name"
+                  type="text"
+                  aria-label="${day} ${meal} restaurant"
+                  placeholder="Restaurant"
+                  data-day="${day}"
+                  data-meal="${meal}"
+                  value="${escapeHtml(takeoutName(value))}"
+                  ${takeout ? "" : "hidden"}
+                />
+              </div>
+            </div>`;
+        })
         .join("");
 
       return `
@@ -573,7 +639,25 @@ function renderPlanner() {
         renderAll();
         return;
       }
-      getCurrentPlan()[select.dataset.day][select.dataset.meal] = select.value;
+      const nameInput = select.parentElement.querySelector(".takeout-name");
+      const value = select.value === TAKEOUT_PREFIX ? takeoutValue(nameInput?.value || "") : select.value;
+      getCurrentPlan()[select.dataset.day][select.dataset.meal] = value;
+      saveState();
+      renderAll();
+      if (isTakeoutValue(value)) {
+        document.getElementById(`${select.dataset.day}-${select.dataset.meal}`)?.parentElement?.querySelector(".takeout-name")?.focus();
+      }
+    });
+  });
+
+  grid.querySelectorAll(".takeout-name").forEach((input) => {
+    input.disabled = !planner;
+    input.addEventListener("change", () => {
+      if (!planner || !requireCloudWrite()) {
+        renderAll();
+        return;
+      }
+      getCurrentPlan()[input.dataset.day][input.dataset.meal] = takeoutValue(input.value);
       saveState();
       renderAll();
     });
@@ -583,6 +667,7 @@ function renderPlanner() {
 function recipeOptions(selectedId = "") {
   return [
     '<option value="">Choose a recipe</option>',
+    `<option value="${TAKEOUT_PREFIX}" ${isTakeoutValue(selectedId) ? "selected" : ""}>Takeout</option>`,
     ...state.recipes
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -648,6 +733,8 @@ function renderRecipeEditor() {
 }
 
 function deleteRecipe(id) {
+  const removed = recipeById(id);
+  if (removed?.imagePath) void deleteStoredImage(removed.imagePath);
   state.recipes = state.recipes.filter((recipe) => recipe.id !== id);
   if (openRecipeId === id) openRecipeId = null;
   planners().forEach((planner) => {
@@ -707,7 +794,7 @@ function renderRecipes() {
     .filter((recipe) => !search || `${recipe.name} ${recipe.category}`.toLowerCase().includes(search))
     .sort((a, b) => a.name.localeCompare(b.name));
   catalogue.innerHTML = recipes.length
-    ? recipes.map(recipeCatalogueCard).join("")
+    ? groupRecipesByCategory(recipes).map(recipeCategorySection).join("")
     : '<p class="empty-state">No recipes match your search.</p>';
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -717,11 +804,42 @@ function renderRecipes() {
   });
 }
 
+function groupRecipesByCategory(recipes) {
+  const groups = new Map();
+  recipes.forEach((recipe) => {
+    const category = recipe.category || "Uncategorised";
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(recipe);
+  });
+
+  return [...groups.entries()]
+    .map(([category, items]) => ({ category, recipes: items }))
+    .sort((a, b) => {
+      const rankA = categoryOrder.indexOf(a.category);
+      const rankB = categoryOrder.indexOf(b.category);
+      if (rankA !== rankB) return (rankA < 0 ? categoryOrder.length : rankA) - (rankB < 0 ? categoryOrder.length : rankB);
+      return a.category.localeCompare(b.category);
+    });
+}
+
+function recipeCategorySection(group) {
+  return `
+    <section class="recipe-category-group">
+      <header class="recipe-category-heading">
+        <h3>${escapeHtml(group.category)}</h3>
+        <span>${group.recipes.length} recipe${group.recipes.length === 1 ? "" : "s"}</span>
+      </header>
+      <div class="recipe-category-grid">
+        ${group.recipes.map(recipeCatalogueCard).join("")}
+      </div>
+    </section>`;
+}
+
 function recipeCatalogueCard(recipe) {
   const steps = recipeSteps(recipe).length;
   return `
     <button class="recipe-catalogue-card" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
-      <span class="recipe-catalogue-visual" aria-hidden="true">${escapeHtml(recipe.name.slice(0, 1).toUpperCase())}</span>
+      ${recipeCatalogueVisual(recipe)}
       <span class="recipe-catalogue-body">
         <span class="category-pill">${escapeHtml(recipe.category)}</span>
         <strong>${escapeHtml(recipe.name)}</strong>
@@ -729,6 +847,14 @@ function recipeCatalogueCard(recipe) {
       </span>
       <span class="recipe-catalogue-open">View recipe →</span>
     </button>`;
+}
+
+function recipeCatalogueVisual(recipe) {
+  const image = recipeImage(recipe);
+  if (image) {
+    return `<span class="recipe-catalogue-visual has-image" style="background-image: url('${image}')" aria-hidden="true"></span>`;
+  }
+  return `<span class="recipe-catalogue-visual" aria-hidden="true">${escapeHtml(recipe.name.slice(0, 1).toUpperCase())}</span>`;
 }
 
 function recipeDetailMarkup(recipe) {
@@ -740,6 +866,7 @@ function recipeDetailMarkup(recipe) {
       <button class="text-button" data-back-to-recipes type="button">← All recipes</button>
       <button class="secondary-button" data-edit-open-recipe type="button">Edit recipe</button>
     </div>
+    ${recipeImage(recipe) ? `<img class="recipe-detail-image" src="${recipeImage(recipe)}" alt="${escapeHtml(recipe.name)}" />` : ""}
     <header class="recipe-detail-header">
       <span class="category-pill">${escapeHtml(recipe.category)}</span>
       <h2>${escapeHtml(recipe.name)}</h2>
@@ -1044,7 +1171,7 @@ function recipeIngredientText(item) {
 }
 
 function formatMacro(value) {
-  return Number(value || 0).toFixed(1).replace(/\.0$/, "");
+  return String(roundTo(Number(value || 0), 2));
 }
 
 function renderGroceries() {
@@ -1150,12 +1277,94 @@ function parseIngredient(ingredient) {
 }
 
 function parseQuantity(value) {
-  if (value.includes("/")) {
-    const [top, bottom] = value.split("/").map(Number);
-    return bottom ? top / bottom : 0;
+  return parseFractionInput(value);
+}
+
+// Amounts are stored as numbers but always shown as whole numbers or fractions.
+const fractionGlyphs = {
+  "1/2": "½", "1/3": "⅓", "2/3": "⅔", "1/4": "¼", "3/4": "¾",
+  "1/5": "⅕", "2/5": "⅖", "3/5": "⅗", "4/5": "⅘",
+  "1/6": "⅙", "5/6": "⅚",
+  "1/8": "⅛", "3/8": "⅜", "5/8": "⅝", "7/8": "⅞"
+};
+const fractionDenominators = [2, 3, 4, 5, 6, 8, 16];
+const fractionTolerance = 0.02;
+
+function greatestCommonDivisor(a, b) {
+  return b ? greatestCommonDivisor(b, a % b) : a || 1;
+}
+
+function nearestFraction(value) {
+  const simplify = (numerator, denominator) => {
+    const divisor = greatestCommonDivisor(numerator, denominator);
+    return { numerator: numerator / divisor, denominator: denominator / divisor };
+  };
+
+  for (const denominator of fractionDenominators) {
+    const numerator = Math.round(value * denominator);
+    if (Math.abs(value - numerator / denominator) <= fractionTolerance) return simplify(numerator, denominator);
   }
 
-  return Number(value);
+  return simplify(Math.round(value * 16), 16);
+}
+
+function formatQuantity(quantity) {
+  const value = Number(quantity || 0);
+  if (!Number.isFinite(value)) return "0";
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  let whole = Math.floor(absolute);
+  let { numerator, denominator } = nearestFraction(absolute - whole);
+  if (numerator >= denominator) {
+    whole += 1;
+    numerator = 0;
+  }
+  if (!numerator) return `${sign}${whole}`;
+  const text = `${numerator}/${denominator}`;
+  const glyph = fractionGlyphs[text];
+  if (!whole) return `${sign}${glyph || text}`;
+  return glyph ? `${sign}${whole}${glyph}` : `${sign}${whole} ${text}`;
+}
+
+// Accepts "1 1/2", "3/4", "1½" or "1.5" and returns a number.
+function parseFractionInput(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  let text = String(value ?? "").trim();
+  if (!text) return 0;
+  const negative = text.startsWith("-");
+  if (negative) text = text.slice(1);
+  Object.entries(vulgarFractions).forEach(([glyph, fraction]) => {
+    text = text.split(glyph).join(` ${fraction} `);
+  });
+
+  let total = 0;
+  for (const part of text.split(/\s+/).filter(Boolean)) {
+    if (part.includes("/")) {
+      const [top, bottom] = part.split("/").map(Number);
+      if (!Number.isFinite(top) || !Number.isFinite(bottom) || !bottom) return 0;
+      total += top / bottom;
+    } else {
+      const number = Number(part);
+      if (!Number.isFinite(number)) return 0;
+      total += number;
+    }
+  }
+
+  return negative ? -total : total;
+}
+
+function bindQuantityInput(input) {
+  if (!input) return;
+  input.addEventListener("blur", () => {
+    const value = parseFractionInput(input.value);
+    if (value > 0) input.value = formatQuantity(value);
+  });
+}
+
+function isValidQuantityInput(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return false;
+  return /^[0-9./\s¼-¾⅐-⅞]+$/.test(text) && parseFractionInput(text) > 0;
 }
 
 function formatGroceryItem(item) {
@@ -1164,10 +1373,6 @@ function formatGroceryItem(item) {
   }
 
   return `${item.name}${item.count > 1 ? ` x${item.count}` : ""}`;
-}
-
-function formatQuantity(quantity) {
-  return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function renderMacros() {
@@ -1183,38 +1388,13 @@ function renderMacros() {
 
 function renderIngredients() {
   const ingredients = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
-  document.getElementById("ingredient-options").innerHTML = ingredients
-    .map(
-      (ingredient) =>
-        `<option value="${escapeHtml(ingredient.name)}">${escapeHtml(ingredient.serving)} - ${formatQuantity(
-          servingsPerContainer(ingredient)
-        )} per container</option>`
-    )
-    .join("");
-
   const list = document.getElementById("ingredient-list");
   if (!ingredients.length) {
     list.innerHTML = '<p class="empty-state">Add an ingredient with its serving macros before building a recipe.</p>';
     return;
   }
 
-  list.innerHTML = ingredients
-    .map(
-      (ingredient) => `
-        <article class="mapping-row">
-          <div>
-            <strong><a href="${escapeHtml(ingredient.url)}" target="_blank" rel="noopener">${escapeHtml(ingredient.name)}</a></strong>
-            <span>${escapeHtml(ingredient.serving)} per serving</span>
-            <span class="nutrition-only">${nutrients.map((nutrient) => `${nutrientText(nutrient, ingredient[nutrient.key])} ${nutrient.label.toLowerCase()}`).join(" - ")}</span>
-            <span>${formatQuantity(servingsPerContainer(ingredient))} servings per container</span>
-          </div>
-          <div class="mapping-actions">
-            <button class="secondary-button" data-edit-ingredient="${escapeHtml(ingredient.key)}" type="button">Edit</button>
-            <button class="danger-button" data-delete-ingredient="${escapeHtml(ingredient.key)}" type="button">Delete</button>
-          </div>
-        </article>`
-    )
-    .join("");
+  list.innerHTML = ingredients.map(ingredientTile).join("");
 
   list.querySelectorAll("[data-edit-ingredient]").forEach((button) => {
     button.addEventListener("click", () => fillIngredientForm(state.ingredients[button.dataset.editIngredient]));
@@ -1230,11 +1410,381 @@ function renderIngredients() {
         return;
       }
 
+      if (state.ingredients[key]?.imagePath) void deleteStoredImage(state.ingredients[key].imagePath);
       delete state.ingredients[key];
       saveState();
       renderAll();
       refreshRecipeMacroPreview();
     });
+  });
+}
+
+const tileNutrients = ["calories", "protein", "carbs", "fat"];
+
+function ingredientTile(ingredient) {
+  const image = ingredientImage(ingredient);
+  const url = safeLinkUrl(ingredient.url);
+  const visual = image
+    ? `<span class="ingredient-tile-visual has-image" style="background-image: url('${image}')"></span>`
+    : `<span class="ingredient-tile-visual">${escapeHtml(ingredient.name.slice(0, 1).toUpperCase())}</span>`;
+  const macros = nutrients
+    .filter((nutrient) => tileNutrients.includes(nutrient.key))
+    .map(
+      (nutrient) => `
+        <span class="ingredient-macro">
+          <em>${escapeHtml(nutrient.short)}</em>
+          <b>${nutrientText(nutrient, ingredient[nutrient.key])}</b>
+        </span>`
+    )
+    .join("");
+
+  const body = `
+    ${visual}
+    <span class="ingredient-tile-body">
+      <strong>${escapeHtml(ingredient.name)}</strong>
+      <span class="ingredient-tile-serving">${escapeHtml(ingredient.serving)} per serving · ${formatQuantity(
+        servingsPerContainer(ingredient)
+      )} per container</span>
+      <span class="ingredient-tile-macros nutrition-only">${macros}</span>
+    </span>`;
+
+  const surface = url
+    ? `<a class="ingredient-tile-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${body}</a>`
+    : `<span class="ingredient-tile-link is-plain">${body}</span>`;
+
+  return `
+    <article class="ingredient-tile">
+      ${surface}
+      <div class="ingredient-tile-actions">
+        <button class="secondary-button" data-edit-ingredient="${escapeHtml(ingredient.key)}" type="button">Edit</button>
+        <button class="danger-button" data-delete-ingredient="${escapeHtml(ingredient.key)}" type="button">Delete</button>
+      </div>
+    </article>`;
+}
+
+function safeLinkUrl(value) {
+  return /^https?:\/\//i.test(String(value || "")) ? value : "";
+}
+
+// ---------------------------------------------------------------------------
+// Recipe import: reads schema.org/Recipe data out of a pasted recipe page.
+// ---------------------------------------------------------------------------
+
+const importCategoryMap = {
+  breakfast: "Breakfast",
+  brunch: "Breakfast",
+  lunch: "Lunch",
+  dinner: "Dinner",
+  "main course": "Dinner",
+  "main dish": "Dinner",
+  entree: "Dinner",
+  supper: "Dinner",
+  dessert: "Dessert",
+  desserts: "Dessert",
+  baking: "Dessert",
+  snack: "Snack",
+  snacks: "Snack",
+  appetizer: "Side",
+  appetizers: "Side",
+  "side dish": "Side",
+  side: "Side",
+  salad: "Side",
+  soup: "Side"
+};
+
+const vulgarFractions = {
+  "¼": "1/4", "½": "1/2", "¾": "3/4",
+  "⅓": "1/3", "⅔": "2/3",
+  "⅕": "1/5", "⅖": "2/5", "⅗": "3/5", "⅘": "4/5",
+  "⅙": "1/6", "⅚": "5/6",
+  "⅛": "1/8", "⅜": "3/8", "⅝": "5/8", "⅞": "7/8"
+};
+
+const recipeImportBookmarklet =
+  "javascript:(function(){var n=document.querySelectorAll('script[type=\"application/ld+json\"]'),t=[];" +
+  "for(var i=0;i<n.length;i++){t.push(n[i].textContent);}" +
+  "var s=t.join('\\n<!--SPLIT-->\\n')||document.documentElement.outerHTML;" +
+  "if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){alert('Recipe data copied.');}," +
+  "function(){window.prompt('Copy this:',s);});}else{window.prompt('Copy this:',s);}})();";
+
+function parsePastedRecipe(source) {
+  const text = String(source || "").trim();
+  if (!text) throw new Error("Paste a recipe page first.");
+
+  const doc = text.startsWith("{") || text.startsWith("[") ? null : new DOMParser().parseFromString(text, "text/html");
+  const node = findRecipeNode(collectJsonLdNodes(text, doc));
+  if (node) return recipeFromSchema(node);
+
+  const microdata = doc ? recipeFromMicrodata(doc) : null;
+  if (microdata) return microdata;
+
+  throw new Error("No recipe data found. Paste the whole page source, or try the bookmarklet.");
+}
+
+function collectJsonLdNodes(text, doc) {
+  const chunks = text.split("<!--SPLIT-->");
+  if (doc) doc.querySelectorAll('script[type="application/ld+json"]').forEach((script) => chunks.push(script.textContent));
+
+  const parsed = [];
+  chunks.forEach((chunk) => {
+    const clean = String(chunk || "").trim();
+    if (!clean.startsWith("{") && !clean.startsWith("[")) return;
+    try {
+      parsed.push(JSON.parse(clean));
+    } catch (error) {
+      // A page can carry malformed blocks alongside good ones; keep looking.
+    }
+  });
+  return parsed;
+}
+
+function findRecipeNode(values, depth = 0) {
+  if (depth > 6) return null;
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const match = findRecipeNode(value, depth + 1);
+      if (match) return match;
+      continue;
+    }
+    if (!value || typeof value !== "object") continue;
+    if (schemaTypes(value).includes("recipe")) return value;
+    const match = findRecipeNode(Object.values(value), depth + 1);
+    if (match) return match;
+  }
+  return null;
+}
+
+function schemaTypes(node) {
+  const type = node["@type"] ?? node.type;
+  return (Array.isArray(type) ? type : [type]).filter(Boolean).map((value) => String(value).toLowerCase());
+}
+
+function recipeFromSchema(node) {
+  const name = schemaText(node.name) || schemaText(node.headline);
+  const ingredients = arrayify(node.recipeIngredient ?? node.ingredients)
+    .map((line) => normalizeIngredientLine(schemaText(line)))
+    .filter(Boolean);
+  const steps = schemaSteps(node.recipeInstructions);
+  const servings = schemaServings(node.recipeYield);
+
+  return {
+    name: name || "Imported recipe",
+    category: schemaCategory(node),
+    servings,
+    ingredients,
+    steps,
+    notes: buildImportNotes(node),
+    image: schemaImage(node.image),
+    nutrition: schemaNutrition(node.nutrition, servings)
+  };
+}
+
+function arrayify(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function schemaText(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return stripMarkup(value);
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return schemaText(value[0]);
+  if (typeof value === "object") return schemaText(value.text ?? value.name ?? value["@value"] ?? "");
+  return "";
+}
+
+function stripMarkup(value) {
+  const raw = String(value);
+  if (!raw.includes("<") && !raw.includes("&")) return collapseSpaces(raw);
+  const doc = new DOMParser().parseFromString(raw, "text/html");
+  const root = doc.documentElement ? doc.body || doc.documentElement : null;
+  if (!root) return collapseSpaces(raw);
+  root.querySelectorAll("li, p, br, div").forEach((element) => element.after(doc.createTextNode("\n")));
+  return collapseSpaces(root.textContent || "");
+}
+
+function collapseSpaces(value) {
+  return String(value).replace(new RegExp(String.fromCharCode(160), "g"), " ").replace(/[ 	]+/g, " ").trim();
+}
+
+function schemaSteps(value, depth = 0) {
+  if (!value || depth > 4) return [];
+  if (typeof value === "string") return splitSteps(stripMarkup(value));
+  if (Array.isArray(value)) return value.flatMap((entry) => schemaSteps(entry, depth + 1));
+  if (typeof value === "object") {
+    if (Array.isArray(value.itemListElement)) return schemaSteps(value.itemListElement, depth + 1);
+    return splitSteps(stripMarkup(value.text ?? value.name ?? ""));
+  }
+  return [];
+}
+
+function splitSteps(text) {
+  return String(text)
+    .split(/\r?\n+/)
+    .map((step) => step.replace(/^\s*(?:step\s*)?\d+[.):]\s*/i, "").trim())
+    .filter((step) => step.length > 1);
+}
+
+function schemaServings(value) {
+  const text = Array.isArray(value) ? value.map(schemaText).join(" ") : schemaText(value);
+  const match = text.match(/\d+(?:\.\d+)?/);
+  const servings = match ? Number(match[0]) : 0;
+  return servings > 0 && servings < 500 ? servings : 4;
+}
+
+function schemaImage(value) {
+  if (!value) return "";
+  if (typeof value === "string") return safeImageUrl(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const url = schemaImage(entry);
+      if (url) return url;
+    }
+    return "";
+  }
+  if (typeof value === "object") return schemaImage(value.url ?? value.contentUrl ?? "");
+  return "";
+}
+
+function schemaCategory(node) {
+  const candidates = [...arrayify(node.recipeCategory), ...arrayify(node.recipeCuisine), ...arrayify(node.keywords)];
+  for (const candidate of candidates) {
+    const key = schemaText(candidate).toLowerCase().trim();
+    if (importCategoryMap[key]) return importCategoryMap[key];
+  }
+  return "Dinner";
+}
+
+function schemaNutrition(nutrition, servings) {
+  if (!nutrition || typeof nutrition !== "object") return null;
+  const fields = {
+    calories: nutrition.calories,
+    protein: nutrition.proteinContent,
+    carbs: nutrition.carbohydrateContent,
+    fat: nutrition.fatContent
+  };
+
+  const perRecipe = {};
+  let found = false;
+  Object.entries(fields).forEach(([key, value]) => {
+    const match = schemaText(value).match(/\d+(?:\.\d+)?/);
+    if (!match) return;
+    found = true;
+    // schema.org nutrition is per serving; this app stores whole-recipe totals.
+    perRecipe[key] = roundTo(Number(match[0]) * servings, 2);
+  });
+
+  return found ? perRecipe : null;
+}
+
+function buildImportNotes(node) {
+  const parts = [schemaText(node.description)];
+  const author = schemaText(node.author);
+  const source = schemaText(node.url ?? node["@id"]);
+  if (author) parts.push(`Recipe by ${author}`);
+  if (/^https?:\/\//i.test(source)) parts.push(source);
+  return parts.filter(Boolean).join("\n\n").slice(0, 2000);
+}
+
+function normalizeIngredientLine(line) {
+  let text = collapseSpaces(line);
+  Object.entries(vulgarFractions).forEach(([symbol, fraction]) => {
+    text = text.split(symbol).join(` ${fraction}`);
+  });
+  text = collapseSpaces(text);
+  // "1 1/2 cups flour" -> "1.5 cups flour", which the ingredient parser understands.
+  text = text.replace(/^(\d+)\s+(\d+)\/(\d+)\b/, (whole, a, b, c) => String(Number(a) + Number(b) / Number(c)));
+  return text.replace(/^[\s\-•*]+/, "").trim();
+}
+
+function recipeFromMicrodata(doc) {
+  const scope = doc.querySelector('[itemtype*="schema.org/Recipe" i]') || doc;
+  const pick = (property) => [...scope.querySelectorAll(`[itemprop="${property}" i]`)];
+  const ingredients = [...pick("recipeIngredient"), ...pick("ingredients")]
+    .map((element) => normalizeIngredientLine(element.textContent))
+    .filter(Boolean);
+  if (!ingredients.length) return null;
+
+  const steps = pick("recipeInstructions").flatMap((element) => {
+    const items = [...element.querySelectorAll("li, p")];
+    const source = items.length ? items.map((item) => item.textContent) : [element.textContent];
+    return source.flatMap((text) => splitSteps(collapseSpaces(text)));
+  });
+
+  return {
+    name: collapseSpaces(pick("name")[0]?.textContent || "") || "Imported recipe",
+    category: "Dinner",
+    servings: schemaServings(pick("recipeYield")[0]?.textContent || ""),
+    ingredients,
+    steps,
+    notes: collapseSpaces(pick("description")[0]?.textContent || ""),
+    image: safeImageUrl(pick("image")[0]?.getAttribute("src") || pick("image")[0]?.getAttribute("content") || ""),
+    nutrition: null
+  };
+}
+
+function applyImportedRecipe(parsed) {
+  showRecipeEditor();
+  document.getElementById("recipe-name").value = parsed.name;
+  document.getElementById("recipe-servings").value = parsed.servings;
+  document.getElementById("recipe-notes").value = parsed.notes;
+
+  const categorySelect = document.getElementById("recipe-category");
+  const hasCategory = [...categorySelect.options].some((option) => option.value === parsed.category);
+  categorySelect.value = hasCategory ? parsed.category : "Dinner";
+
+  const ingredientRows = document.getElementById("recipe-ingredient-rows");
+  ingredientRows.replaceChildren();
+  (parsed.ingredients.length ? parsed.ingredients : [""]).forEach((line) => addRecipeIngredientRow(line));
+
+  const stepRows = document.getElementById("recipe-step-rows");
+  stepRows.replaceChildren();
+  (parsed.steps.length ? parsed.steps : [""]).forEach((step) => addRecipeStepRow(step));
+
+  recipeDraftNutrition = parsed.nutrition;
+  recipeDraftImage = safeImageUrl(parsed.image);
+  setRecipePhotoMessage(recipeDraftImage ? "Photo linked from the source site." : "Optional. Photos are resized before uploading.");
+  renderRecipePhotoPreview();
+  document.getElementById("recipe-name").focus({ preventScroll: true });
+}
+
+function setupRecipeImport() {
+  const panel = document.getElementById("recipe-import");
+  const source = document.getElementById("recipe-import-source");
+  const message = document.getElementById("recipe-import-message");
+  const bookmarklet = document.getElementById("recipe-import-bookmarklet");
+
+  bookmarklet.setAttribute("href", recipeImportBookmarklet);
+  bookmarklet.addEventListener("click", async (event) => {
+    event.preventDefault();
+    try {
+      await navigator.clipboard.writeText(recipeImportBookmarklet);
+      message.textContent = "Bookmarklet copied. Make a new bookmark and paste it as the address.";
+    } catch (error) {
+      message.textContent = "Drag this link to your bookmarks bar to install it.";
+    }
+  });
+
+  document.getElementById("recipe-import-clear").addEventListener("click", () => {
+    source.value = "";
+    message.textContent = "";
+  });
+
+  document.getElementById("recipe-import-run").addEventListener("click", () => {
+    try {
+      const parsed = parsePastedRecipe(source.value);
+      applyImportedRecipe(parsed);
+      source.value = "";
+      panel.open = false;
+      const missing = [];
+      if (!parsed.ingredients.length) missing.push("ingredients");
+      if (!parsed.steps.length) missing.push("steps");
+      message.textContent = missing.length
+        ? `Imported "${parsed.name}", but no ${missing.join(" or ")} were found - fill those in below.`
+        : `Imported "${parsed.name}". Check it over, then save.`;
+    } catch (error) {
+      message.textContent = error.message;
+    }
   });
 }
 
@@ -1250,7 +1800,7 @@ function renderWeekLabels() {
 }
 
 function renderPlannedCount() {
-  const count = plannedRecipeIds().length;
+  const count = plannedSlotValues().length;
   document.getElementById("planned-count").textContent = `${count} meal${count === 1 ? "" : "s"} planned`;
 }
 
@@ -1270,7 +1820,7 @@ function renderAll() {
 
 function setupForms() {
   populateServingUnits();
-  document.getElementById("recipe-form").addEventListener("submit", (event) => {
+  document.getElementById("recipe-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!requireCloudWrite()) return;
     const ingredients = collectRecipeIngredients();
@@ -1282,22 +1832,37 @@ function setupForms() {
     const editingId = event.target.dataset.editingId;
     const existingRecipe = editingId ? recipeById(editingId) : null;
     const hasManualIngredients = ingredients.some((ingredient) => typeof ingredient === "string");
-    const macros = hasManualIngredients && existingRecipe ? nutrientValues(existingRecipe) : macrosForIngredientRows(ingredients);
+    let macros = hasManualIngredients && existingRecipe ? nutrientValues(existingRecipe) : macrosForIngredientRows(ingredients);
+    if (recipeDraftNutrition && !nutrients.some((nutrient) => macros[nutrient.key])) {
+      macros = { ...macros, ...recipeDraftNutrition };
+    }
     const steps = collectRecipeSteps();
     if (!steps.length) {
       setAuthMessage("Add at least one instruction step.");
       return;
     }
 
+    const id = existingRecipe?.id || crypto.randomUUID();
+    let photo;
+    try {
+      if (recipeDraftBlob) setRecipePhotoMessage("Uploading photo...");
+      photo = await resolvePhoto("recipes", id, recipeDraftBlob, recipeDraftImage, existingRecipe);
+    } catch (error) {
+      setRecipePhotoMessage("Photo upload failed: " + error.message);
+      setAuthMessage("The recipe was not saved because its photo could not be uploaded.");
+      return;
+    }
+
     const recipe = {
-      id: existingRecipe?.id || crypto.randomUUID(),
+      id,
       name: document.getElementById("recipe-name").value.trim(),
       category: document.getElementById("recipe-category").value,
       servings: Number(document.getElementById("recipe-servings").value),
       ...macros,
       ingredients,
       steps,
-      notes: document.getElementById("recipe-notes").value.trim()
+      notes: document.getElementById("recipe-notes").value.trim(),
+      ...photo
     };
 
     if (existingRecipe) {
@@ -1326,6 +1891,21 @@ function setupForms() {
     resetRecipeForm();
     showRecipesView();
   });
+  document.getElementById("recipe-photo").addEventListener("change", async (event) => {
+    const blob = await readPhotoSelection(event, RECIPE_PHOTO_MAX_WIDTH, setRecipePhotoMessage);
+    if (!blob) return;
+    clearRecipePhotoDraft();
+    recipeDraftBlob = blob;
+    recipeDraftPreview = URL.createObjectURL(blob);
+    renderRecipePhotoPreview();
+  });
+  document.getElementById("remove-recipe-photo").addEventListener("click", () => {
+    clearRecipePhotoDraft();
+    recipeDraftImage = "";
+    document.getElementById("recipe-photo").value = "";
+    setRecipePhotoMessage("Photo removed. Save the recipe to apply.");
+    renderRecipePhotoPreview();
+  });
   document.getElementById("add-recipe-ingredient").addEventListener("click", () => addRecipeIngredientRow());
   document.getElementById("add-recipe-step").addEventListener("click", () => addRecipeStepRow());
   document.getElementById("cancel-recipe-edit").addEventListener("click", resetRecipeForm);
@@ -1340,15 +1920,27 @@ function setupForms() {
     const name = document.getElementById("ingredient-name").value.trim();
     const key = ingredientKey(name);
     const previousKey = event.target.dataset.editingKey;
+    const previousIngredient = previousKey ? state.ingredients[previousKey] : state.ingredients[key];
+    let photo;
+    try {
+      if (ingredientDraftBlob) setIngredientPhotoMessage("Uploading photo...");
+      photo = await resolvePhoto("ingredients", key, ingredientDraftBlob, ingredientDraftImage, previousIngredient);
+    } catch (error) {
+      setIngredientPhotoMessage("Photo upload failed: " + error.message);
+      setAuthMessage("The ingredient was not saved because its photo could not be uploaded.");
+      return;
+    }
+
     const ingredient = {
       key,
       name,
       serving: readServingInputs(),
       ...readNutrientInputs(),
       servingsPerContainer: servingsPerContainer({
-        servingsPerContainer: document.getElementById("ingredient-servings-per-container").value
+        servingsPerContainer: parseFractionInput(document.getElementById("ingredient-servings-per-container").value)
       }),
-      url: document.getElementById("ingredient-url").value.trim()
+      url: document.getElementById("ingredient-url").value.trim(),
+      ...photo
     };
 
     if (previousKey && previousKey !== key) {
@@ -1364,12 +1956,32 @@ function setupForms() {
     event.target.reset();
     delete event.target.dataset.editingKey;
     resetIngredientMacroInputs();
+    clearIngredientPhotoDraft();
+    ingredientDraftImage = "";
+    setIngredientPhotoMessage("Optional. Photos are resized before uploading.");
+    renderIngredientPhotoPreview();
     renderAll();
 
     authEls.syncStatus.textContent = "Saving";
     setAccountStatus("checking", "Signed in", "Saving to Firebase...");
     const saved = await saveCloudState("Ingredient save failed");
     if (saved) setAuthMessage("Ingredient saved to Firebase.");
+  });
+
+  document.getElementById("ingredient-photo").addEventListener("change", async (event) => {
+    const blob = await readPhotoSelection(event, INGREDIENT_PHOTO_MAX_WIDTH, setIngredientPhotoMessage);
+    if (!blob) return;
+    clearIngredientPhotoDraft();
+    ingredientDraftBlob = blob;
+    ingredientDraftPreview = URL.createObjectURL(blob);
+    renderIngredientPhotoPreview();
+  });
+  document.getElementById("remove-ingredient-photo").addEventListener("click", () => {
+    clearIngredientPhotoDraft();
+    ingredientDraftImage = "";
+    document.getElementById("ingredient-photo").value = "";
+    setIngredientPhotoMessage("Photo removed. Save the ingredient to apply.");
+    renderIngredientPhotoPreview();
   });
 
   document.getElementById("clear-week").addEventListener("click", () => {
@@ -1420,19 +2032,20 @@ function addRecipeStepRow(value = "") {
   const row = document.createElement("div");
   row.className = "recipe-step-row";
   row.innerHTML = `
-    <span class="recipe-step-number" aria-hidden="true"></span>
+    <button class="recipe-step-number drag-handle" type="button" aria-label="Reorder step" title="Drag to reorder, or use the arrow keys"></button>
     <label>
       <span class="recipe-step-label">Step</span>
       <textarea class="recipe-step-input" required placeholder="Describe this step...">${escapeHtml(value)}</textarea>
     </label>
     <button class="danger-button" type="button">Remove</button>`;
 
-  row.querySelector("button").addEventListener("click", () => {
+  row.querySelector(".danger-button").addEventListener("click", () => {
     row.remove();
     if (!container.children.length) addRecipeStepRow();
     updateRecipeStepNumbers();
   });
   container.append(row);
+  makeRowsSortable(container, { item: ".recipe-step-row", onReorder: updateRecipeStepNumbers });
   updateRecipeStepNumbers();
 }
 
@@ -1454,6 +2067,12 @@ function fillRecipeForm(recipe) {
   document.getElementById("recipe-category").value = recipe.category || "Dinner";
   document.getElementById("recipe-servings").value = Number(recipe.servings || 1);
   document.getElementById("recipe-notes").value = recipe.notes || "";
+  clearRecipePhotoDraft();
+  recipeDraftNutrition = null;
+  recipeDraftImage = recipeImage(recipe);
+  document.getElementById("recipe-photo").value = "";
+  setRecipePhotoMessage(recipeDraftImage ? "Photo attached." : "Optional. Photos are resized before uploading.");
+  renderRecipePhotoPreview();
 
   const ingredientRows = document.getElementById("recipe-ingredient-rows");
   ingredientRows.replaceChildren();
@@ -1481,6 +2100,12 @@ function resetRecipeForm() {
   addRecipeStepRow();
   document.getElementById("save-recipe").textContent = "Add recipe";
   document.getElementById("cancel-recipe-edit").hidden = true;
+  clearRecipePhotoDraft();
+  recipeDraftNutrition = null;
+  recipeDraftImage = "";
+  document.getElementById("recipe-photo").value = "";
+  setRecipePhotoMessage("Optional. Photos are resized before uploading.");
+  renderRecipePhotoPreview();
 }
 
 function recipeIngredientFormValue(item) {
@@ -1528,19 +2153,103 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
   return specialOptions + measurementOptions + customOption;
 }
 
+// Pointer-based row reordering: works with mouse and touch, and with the
+// keyboard through the handle's arrow keys.
+function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder = () => {} }) {
+  if (!container || container.dataset.sortable === "true") return;
+  container.dataset.sortable = "true";
+
+  let row = null;
+  let pointerId = null;
+  let basePointerY = 0;
+
+  const stop = () => {
+    if (!row) return;
+    row.style.transform = "";
+    delete row.dataset.dragging;
+    delete container.dataset.dragging;
+    row = null;
+    pointerId = null;
+    onReorder();
+  };
+
+  container.addEventListener("pointerdown", (event) => {
+    const grip = event.target.closest(handle);
+    if (!grip || event.button > 0) return;
+    const target = grip.closest(item);
+    if (!target) return;
+    row = target;
+    pointerId = event.pointerId;
+    basePointerY = event.clientY;
+    row.dataset.dragging = "true";
+    container.dataset.dragging = "true";
+    grip.setPointerCapture(pointerId);
+    event.preventDefault();
+  });
+
+  container.addEventListener("pointermove", (event) => {
+    if (!row || event.pointerId !== pointerId) return;
+    event.preventDefault();
+    row.style.transform = `translateY(${event.clientY - basePointerY}px)`;
+
+    const rect = row.getBoundingClientRect();
+    const centre = rect.top + rect.height / 2;
+    const reference = [...container.children].find(
+      (child) => child !== row && child.matches(item) && centre < child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2
+    ) || null;
+    if (reference === row.nextElementSibling) return;
+
+    // Re-anchor the drag so the row stays under the pointer after it moves.
+    const visualTop = rect.top;
+    if (reference) container.insertBefore(row, reference);
+    else container.append(row);
+    row.style.transform = "";
+    const offset = visualTop - row.getBoundingClientRect().top;
+    basePointerY = event.clientY - offset;
+    row.style.transform = `translateY(${offset}px)`;
+  });
+
+  container.addEventListener("pointerup", stop);
+  container.addEventListener("pointercancel", stop);
+
+  container.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const grip = event.target.closest(handle);
+    const current = grip?.closest(item);
+    const sibling = event.key === "ArrowUp" ? current?.previousElementSibling : current?.nextElementSibling;
+    if (!sibling) return;
+    event.preventDefault();
+    if (event.key === "ArrowUp") container.insertBefore(current, sibling);
+    else container.insertBefore(sibling, current);
+    grip.focus();
+    onReorder();
+  });
+}
+
+function dragHandleMarkup(label, className = "drag-handle") {
+  return `<button class="${className}" type="button" aria-label="${escapeHtml(label)}" title="Drag to reorder, or use the arrow keys">
+      <svg viewBox="0 0 10 16" aria-hidden="true" focusable="false"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>
+    </button>`;
+}
+
 function addRecipeIngredientRow(item = {}) {
   const container = document.getElementById("recipe-ingredient-rows");
   const row = document.createElement("div");
   row.className = "recipe-ingredient-row";
   const formValue = recipeIngredientFormValue(item);
   row.innerHTML = `
-    <label>
-      Ingredient
-      <input class="recipe-ingredient-search" list="ingredient-options" required placeholder="Search ingredients" value="${escapeHtml(formValue.name)}" />
-    </label>
+    ${dragHandleMarkup("Reorder ingredient")}
+    <div class="ingredient-picker">
+      <label>
+        Ingredient
+        <input class="recipe-ingredient-search" required placeholder="Search ingredients" autocomplete="off"
+          role="combobox" aria-expanded="false" aria-autocomplete="list" value="${escapeHtml(formValue.name)}" />
+      </label>
+      <div class="ingredient-picker-results" role="listbox" hidden></div>
+    </div>
     <label>
       Quantity
-      <input class="recipe-ingredient-quantity" min="0.0001" required step="any" type="number" value="${formValue.quantity}" />
+      <input class="recipe-ingredient-quantity" required type="text" inputmode="text" autocomplete="off" placeholder="1 1/2" value="${escapeHtml(formatQuantity(formValue.quantity))}" />
     </label>
     <label>
       Unit
@@ -1551,6 +2260,8 @@ function addRecipeIngredientRow(item = {}) {
 
   const search = row.querySelector(".recipe-ingredient-search");
   const quantity = row.querySelector(".recipe-ingredient-quantity");
+  bindQuantityInput(quantity);
+  bindIngredientPicker(row);
   const measure = row.querySelector(".recipe-ingredient-measure");
   search.addEventListener("input", () => {
     updateRecipeIngredientRow(row);
@@ -1561,17 +2272,129 @@ function addRecipeIngredientRow(item = {}) {
     refreshRecipeMacroPreview();
   });
   measure.addEventListener("change", () => {
-    if (measure.value === "container") quantity.value = 1;
+    if (measure.value === "container") quantity.value = "1";
     updateRecipeIngredientRow(row);
     refreshRecipeMacroPreview();
   });
-  row.querySelector("button").addEventListener("click", () => {
+  row.querySelector(".danger-button").addEventListener("click", () => {
     row.remove();
     refreshRecipeMacroPreview();
   });
   container.append(row);
+  makeRowsSortable(container, { item: ".recipe-ingredient-row", onReorder: refreshRecipeMacroPreview });
   updateRecipeIngredientRow(row);
   refreshRecipeMacroPreview();
+}
+
+const maxIngredientSuggestions = 8;
+
+function ingredientSuggestions(query) {
+  const all = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
+  const text = String(query || "").trim().toLowerCase();
+  if (!text) return all.slice(0, maxIngredientSuggestions);
+
+  const rank = (ingredient) => (ingredient.name.toLowerCase().startsWith(text) ? 0 : 1);
+  return all
+    .filter((ingredient) => ingredient.name.toLowerCase().includes(text))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+    .slice(0, maxIngredientSuggestions);
+}
+
+// A typed search box backed by the saved ingredients, replacing the native datalist
+// so suggestions are tappable, keyboard navigable and show serving and calories.
+function bindIngredientPicker(row) {
+  const input = row.querySelector(".recipe-ingredient-search");
+  const results = row.querySelector(".ingredient-picker-results");
+  let matches = [];
+  let activeIndex = -1;
+
+  const close = () => {
+    results.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    activeIndex = -1;
+  };
+
+  const paint = () => {
+    if (!matches.length) {
+      results.innerHTML = `<p class="ingredient-picker-empty">${
+        Object.keys(state.ingredients || {}).length
+          ? "No saved ingredient matches. It will be saved as plain text without nutrition."
+          : "No saved ingredients yet. Add one on the Ingredients page."
+      }</p>`;
+      return;
+    }
+
+    results.innerHTML = matches
+      .map(
+        (ingredient, index) => `
+        <button class="ingredient-option" type="button" role="option" data-index="${index}"
+          aria-selected="${index === activeIndex}" ${index === activeIndex ? 'data-active="true"' : ""}>
+          <span class="ingredient-option-name">${escapeHtml(ingredient.name)}</span>
+          <span class="ingredient-option-meta">${escapeHtml(ingredient.serving || "serving")}<span class="nutrition-only"> \u00b7 ${formatMacro(
+          ingredient.calories
+        )} cal</span></span>
+        </button>`
+      )
+      .join("");
+  };
+
+  const open = () => {
+    matches = ingredientSuggestions(input.value);
+    activeIndex = -1;
+    paint();
+    results.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  };
+
+  const move = (step) => {
+    if (results.hidden) {
+      open();
+      if (!matches.length) return;
+    }
+    if (!matches.length) return;
+    activeIndex = (activeIndex + step + matches.length) % matches.length;
+    paint();
+    const active = results.querySelector('[data-active="true"]');
+    if (active?.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+  };
+
+  const choose = (index) => {
+    const ingredient = matches[index];
+    if (!ingredient) return;
+    input.value = ingredient.name;
+    close();
+    updateRecipeIngredientRow(row);
+    refreshRecipeMacroPreview();
+    row.querySelector(".recipe-ingredient-quantity").focus();
+  };
+
+  input.addEventListener("input", open);
+  input.addEventListener("focus", open);
+  input.addEventListener("blur", close);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      move(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "Enter" && !results.hidden) {
+      // Never let the dropdown's Enter reach the form and submit the recipe.
+      event.preventDefault();
+      if (activeIndex >= 0) choose(activeIndex);
+      else close();
+    } else if (event.key === "Escape" && !results.hidden) {
+      event.preventDefault();
+      close();
+    }
+  });
+
+  // Keep focus on the input so blur does not close the list before the click lands.
+  results.addEventListener("mousedown", (event) => event.preventDefault());
+  results.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-index]");
+    if (option) choose(Number(option.dataset.index));
+  });
 }
 
 function updateRecipeIngredientRow(row) {
@@ -1586,7 +2409,7 @@ function updateRecipeIngredientRow(row) {
     : "serving";
   select.innerHTML = recipeMeasurementOptions(ingredient, measure);
   select.value = measure;
-  const quantity = Number(row.querySelector(".recipe-ingredient-quantity").value || 0);
+  const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
   const servingCount = ingredient ? recipeItemServingCount({ quantity, measure }, ingredient) : 0;
   row.querySelector(".recipe-ingredient-serving").textContent = ingredient
     ? measure === "container"
@@ -1606,7 +2429,14 @@ function collectRecipeIngredients(allowIncomplete = false) {
   for (const row of rows) {
     const name = row.querySelector(".recipe-ingredient-search").value.trim();
     const ingredient = state.ingredients[ingredientKey(name)];
-    const quantity = Number(row.querySelector(".recipe-ingredient-quantity").value);
+    const quantityInput = row.querySelector(".recipe-ingredient-quantity");
+    if (!allowIncomplete && quantityInput.value.trim() && !isValidQuantityInput(quantityInput.value)) {
+      quantityInput.setCustomValidity("Use a whole number or a fraction, like 2 or 1 1/2.");
+      quantityInput.reportValidity();
+      quantityInput.setCustomValidity("");
+      return null;
+    }
+    const quantity = parseFractionInput(quantityInput.value);
     const measure = row.querySelector(".recipe-ingredient-measure").value || "serving";
     if (!name || quantity <= 0) {
       if (allowIncomplete) continue;
@@ -1672,6 +2502,8 @@ function populateServingUnits() {
   select.appendChild(other);
   select.value = "g";
   select.addEventListener("change", syncServingUnitCustom);
+  bindQuantityInput(document.getElementById("ingredient-serving-amount"));
+  bindQuantityInput(document.getElementById("ingredient-servings-per-container"));
   syncServingUnitCustom();
 }
 
@@ -1691,15 +2523,14 @@ function syncServingUnitCustom() {
 
 function parseServing(serving) {
   const text = String(serving || "").trim();
-  const match = text.match(/^(\d*\.?\d+(?:\s*\/\s*\d*\.?\d+)?)\s*(.*)$/);
+  const match = text.match(/^([0-9./\s¼-¾⅐-⅞]+?)\s*([^0-9./\s].*)?$/);
   if (!match) return { amount: 1, unit: text || "serving" };
-  const [numerator, denominator] = match[1].split("/").map((part) => Number(part.trim()));
-  const amount = denominator ? numerator / denominator : numerator;
-  return { amount: roundTo(amount, 2), unit: match[2].trim() || "serving" };
+  const amount = parseFractionInput(match[1]);
+  return { amount: roundTo(amount, 4), unit: (match[2] || "").trim() || "serving" };
 }
 
 function readServingInputs() {
-  const amount = Number(document.getElementById("ingredient-serving-amount").value || 0);
+  const amount = parseFractionInput(document.getElementById("ingredient-serving-amount").value);
   const select = document.getElementById("ingredient-serving-unit");
   const unit =
     select.value === customServingUnit
@@ -1710,7 +2541,7 @@ function readServingInputs() {
 
 function setServingInputs(serving) {
   const { amount, unit } = parseServing(serving);
-  document.getElementById("ingredient-serving-amount").value = amount;
+  document.getElementById("ingredient-serving-amount").value = formatQuantity(amount);
   const select = document.getElementById("ingredient-serving-unit");
   const custom = document.getElementById("ingredient-serving-unit-other");
   if (knownServingUnit(unit)) {
@@ -1729,10 +2560,15 @@ function fillIngredientForm(ingredient) {
   document.getElementById("ingredient-name").value = ingredient.name;
   setServingInputs(ingredient.serving);
   nutrients.forEach((nutrient) => {
-    document.getElementById(nutrientInputId(nutrient)).value = Number(ingredient[nutrient.key] || 0);
+    document.getElementById(nutrientInputId(nutrient)).value = roundTo(Number(ingredient[nutrient.key] || 0), 2);
   });
-  document.getElementById("ingredient-servings-per-container").value = servingsPerContainer(ingredient);
+  document.getElementById("ingredient-servings-per-container").value = formatQuantity(servingsPerContainer(ingredient));
   document.getElementById("ingredient-url").value = ingredient.url;
+  clearIngredientPhotoDraft();
+  ingredientDraftImage = ingredientImage(ingredient);
+  document.getElementById("ingredient-photo").value = "";
+  setIngredientPhotoMessage(ingredientDraftImage ? "Photo attached." : "Optional. Photos are resized before uploading.");
+  renderIngredientPhotoPreview();
   document.getElementById("ingredient-name").focus();
 }
 
@@ -1740,7 +2576,7 @@ function resetIngredientMacroInputs() {
   nutrients.forEach((nutrient) => {
     document.getElementById(nutrientInputId(nutrient)).value = 0;
   });
-  document.getElementById("ingredient-servings-per-container").value = 1;
+  document.getElementById("ingredient-servings-per-container").value = "1";
   setServingInputs("1 g");
 }
 
@@ -1750,7 +2586,7 @@ function nutrientInputId(nutrient) {
 
 function readNutrientInputs() {
   return Object.fromEntries(
-    nutrients.map((nutrient) => [nutrient.key, Number(document.getElementById(nutrientInputId(nutrient)).value)])
+    nutrients.map((nutrient) => [nutrient.key, roundTo(Number(document.getElementById(nutrientInputId(nutrient)).value) || 0, 2)])
   );
 }
 
@@ -2143,6 +2979,145 @@ function resizeImageToDataUrl(file, size) {
   });
 }
 
+function resizeImageToBlob(file, maxWidth) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("the file could not be read"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("the file is not a readable image"));
+      image.onload = () => {
+        const scale = Math.min(1, maxWidth / image.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))),
+          "image/jpeg",
+          0.8
+        );
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function safeImageUrl(value) {
+  const url = String(value || "").trim();
+  if (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url)) return url;
+  // Storage download URLs plus images linked from an imported recipe page. Quotes,
+  // parens and whitespace are rejected so the value is safe inside a CSS url().
+  return /^https:\/\/[^\s'"()\<>]+$/.test(url) ? url : "";
+}
+
+function recipeImage(recipe) {
+  return safeImageUrl(recipe?.image);
+}
+
+function ingredientImage(ingredient) {
+  return safeImageUrl(ingredient?.image);
+}
+
+function storagePathFor(kind, id) {
+  return `households/${currentHouseholdId}/${kind}/${id}.jpg`;
+}
+
+async function uploadImageBlob(blob, path) {
+  const ref = cloud.storageRef(cloud.storage, path);
+  await cloud.uploadBytes(ref, blob, { contentType: "image/jpeg" });
+  return cloud.getDownloadURL(ref);
+}
+
+async function resolvePhoto(kind, id, blob, keptUrl, previous) {
+  const previousPath = previous?.imagePath || "";
+  if (blob) {
+    const path = storagePathFor(kind, id);
+    const image = await uploadImageBlob(blob, path);
+    if (previousPath && previousPath !== path) await deleteStoredImage(previousPath);
+    return { image, imagePath: path };
+  }
+
+  const image = safeImageUrl(keptUrl);
+  if (!image) {
+    if (previousPath) await deleteStoredImage(previousPath);
+    return { image: "", imagePath: "" };
+  }
+
+  return { image, imagePath: previousPath };
+}
+
+async function deleteStoredImage(path) {
+  if (!cloud || !currentHouseholdId) return;
+  try {
+    await cloud.deleteObject(cloud.storageRef(cloud.storage, path));
+  } catch (error) {
+    if (error?.code !== "storage/object-not-found") console.warn("Could not delete image", error);
+  }
+}
+
+function setRecipePhotoMessage(message) {
+  const element = document.getElementById("recipe-photo-message");
+  if (element) element.textContent = message;
+}
+
+function renderRecipePhotoPreview() {
+  const preview = document.getElementById("recipe-photo-preview");
+  if (!preview) return;
+  const image = recipeDraftPreview || safeImageUrl(recipeDraftImage);
+  preview.style.backgroundImage = image ? `url("${image}")` : "";
+  preview.dataset.empty = image ? "false" : "true";
+  document.getElementById("remove-recipe-photo").hidden = !image;
+}
+
+function clearRecipePhotoDraft() {
+  if (recipeDraftPreview) URL.revokeObjectURL(recipeDraftPreview);
+  recipeDraftPreview = "";
+  recipeDraftBlob = null;
+}
+
+function setIngredientPhotoMessage(message) {
+  const element = document.getElementById("ingredient-photo-message");
+  if (element) element.textContent = message;
+}
+
+function renderIngredientPhotoPreview() {
+  const preview = document.getElementById("ingredient-photo-preview");
+  if (!preview) return;
+  const image = ingredientDraftPreview || safeImageUrl(ingredientDraftImage);
+  preview.style.backgroundImage = image ? `url("${image}")` : "";
+  preview.dataset.empty = image ? "false" : "true";
+  document.getElementById("remove-ingredient-photo").hidden = !image;
+}
+
+function clearIngredientPhotoDraft() {
+  if (ingredientDraftPreview) URL.revokeObjectURL(ingredientDraftPreview);
+  ingredientDraftPreview = "";
+  ingredientDraftBlob = null;
+}
+
+async function readPhotoSelection(event, maxWidth, setMessage) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return null;
+  if (!file.type.startsWith("image/")) {
+    setMessage("Choose an image file.");
+    return null;
+  }
+
+  setMessage("Preparing your photo...");
+  try {
+    const blob = await resizeImageToBlob(file, maxWidth);
+    setMessage("Photo ready - it uploads when you save.");
+    return blob;
+  } catch (error) {
+    setMessage("Could not read that image: " + error.message);
+    return null;
+  }
+}
+
 function setProfileMessage(message) {
   if (authEls.profileMessage) authEls.profileMessage.textContent = message;
 }
@@ -2312,11 +3287,14 @@ function updateDataControls() {
   const disabled = !canWriteCloudData();
   const selectors = [
     "#week-grid select",
+    "#week-grid input",
     "#clear-week",
     "#recipe-form input",
     "#recipe-form select",
     "#recipe-form textarea",
     "#recipe-form button",
+    "#recipe-import-source",
+    "#recipe-import-run",
     "#ingredient-form input",
     "#ingredient-form button",
     "#create-planner-form input",
@@ -2359,6 +3337,7 @@ function escapeHtml(value) {
 
 renderTabs();
 setupForms();
+setupRecipeImport();
 setupAuth();
 renderAll();
 initializeCloud();

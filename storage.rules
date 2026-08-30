@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isHouseholdMember(householdId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    function isImageUnder(limitBytes) {
+      return request.resource.size < limitBytes
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /households/{householdId}/{folder}/{imageId} {
+      allow read: if isHouseholdMember(householdId);
+      allow create, update: if isHouseholdMember(householdId)
+        && folder in ['recipes', 'ingredients']
+        && isImageUnder(5 * 1024 * 1024);
+      allow delete: if isHouseholdMember(householdId);
+    }
+  }
+}

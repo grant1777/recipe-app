@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+database-debug.log*
+pubsub-debug.log*
+ui-debug.log*
+.runtimeconfig.json
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and tooling
+.vscode/
+.idea/
+*.swp
+.claude/settings.local.json
+
+# OS cruft
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Build and cache output
+dist/
+build/
+coverage/
+.cache/
+*.tsbuildinfo

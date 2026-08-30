@@ -139,6 +139,31 @@
             </div>
           </div>
 
+          <details class="recipe-import" id="recipe-import">
+            <summary>Import from a recipe website</summary>
+            <div class="recipe-import-body">
+              <ol class="recipe-import-steps">
+                <li>Open the recipe page and press <kbd>Ctrl</kbd>+<kbd>U</kbd> to show its page source.</li>
+                <li>Select everything (<kbd>Ctrl</kbd>+<kbd>A</kbd>), copy it, and paste it below.</li>
+                <li>Import fills in the form underneath so you can check it before saving.</li>
+              </ol>
+              <p class="recipe-import-hint">
+                <a class="recipe-import-bookmarklet" id="recipe-import-bookmarklet" href="#">Grab recipe</a>
+                Faster option: drag that link to your bookmarks bar, then click it on a recipe page to copy just the recipe
+                data. Click it here to copy the bookmarklet code instead.
+              </p>
+              <label class="recipe-import-label" for="recipe-import-source">
+                Pasted page
+                <textarea id="recipe-import-source" placeholder="Paste the page source or the copied recipe data here"></textarea>
+              </label>
+              <div class="recipe-import-actions">
+                <button class="primary-button" id="recipe-import-run" type="button">Import recipe</button>
+                <button class="text-button" id="recipe-import-clear" type="button">Clear</button>
+              </div>
+              <p class="recipe-import-message" id="recipe-import-message"></p>
+            </div>
+          </details>
+
           <form class="recipe-form" id="recipe-form">
             <div class="form-grid">
               <label>
@@ -158,8 +183,21 @@
               </label>
               <label>
                 Servings
-                <input id="recipe-servings" min="1" required type="number" value="4" />
+                <input id="recipe-servings" min="1" required step="1" type="number" inputmode="numeric" value="4" />
               </label>
+            </div>
+
+            <div class="recipe-photo-field">
+              <div class="recipe-photo-preview" id="recipe-photo-preview" data-empty="true" aria-hidden="true"></div>
+              <div class="recipe-photo-controls">
+                <strong>Photo</strong>
+                <p class="recipe-photo-hint" id="recipe-photo-message">Optional. Photos are resized before saving.</p>
+                <div class="recipe-photo-buttons">
+                  <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
+                  <input id="recipe-photo" type="file" accept="image/*" />
+                  <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove photo</button>
+                </div>
+              </div>
             </div>
 
             <div class="ingredient-builder">
@@ -167,7 +205,6 @@
                 <strong>Ingredients</strong>
                 <button class="secondary-button" id="add-recipe-ingredient" type="button">Add ingredient</button>
               </div>
-              <datalist id="ingredient-options"></datalist>
               <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
               <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
             </div>
@@ -226,48 +263,82 @@
               <label>
                 Serving size
                 <div class="serving-size-inputs">
-                  <input id="ingredient-serving-amount" min="0" required step="0.01" type="number" placeholder="4" value="1" />
+                  <input id="ingredient-serving-amount" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="1 1/2" value="1" />
                   <select id="ingredient-serving-unit"></select>
                 </div>
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
-              <label class="nutrition-only">
-                Calories
-                <input id="ingredient-calories" min="0" required type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Protein (g)
-                <input id="ingredient-protein" min="0" required step="0.1" type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Carbs (g)
-                <input id="ingredient-carbs" min="0" required step="0.1" type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Fat (g)
-                <input id="ingredient-fat" min="0" required step="0.1" type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Iron (mg)
-                <input id="ingredient-iron" min="0" required step="0.1" type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Calcium (mg)
-                <input id="ingredient-calcium" min="0" required step="1" type="number" value="0" />
-              </label>
-              <label class="nutrition-only">
-                Potassium (mg)
-                <input id="ingredient-potassium" min="0" required step="1" type="number" value="0" />
-              </label>
               <label>
                 Servings per container
-                <input id="ingredient-servings-per-container" min="0.01" required step="0.01" type="number" value="1" />
+                <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
               </label>
               <label>
                 Walmart product URL
                 <input id="ingredient-url" required placeholder="https://www.walmart.com/ip/..." type="url" />
               </label>
             </div>
+
+            <fieldset class="macro-fieldset nutrition-only">
+              <legend>Nutrition <span>per serving</span></legend>
+              <div class="macro-field-grid">
+                <label class="macro-field">
+                  <span class="macro-field-label">Calories</span>
+                  <span class="macro-input">
+                    <input id="ingredient-calories" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Protein</span>
+                  <span class="macro-input" data-unit="g">
+                    <input id="ingredient-protein" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Carbs</span>
+                  <span class="macro-input" data-unit="g">
+                    <input id="ingredient-carbs" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Fat</span>
+                  <span class="macro-input" data-unit="g">
+                    <input id="ingredient-fat" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Iron</span>
+                  <span class="macro-input" data-unit="mg">
+                    <input id="ingredient-iron" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Calcium</span>
+                  <span class="macro-input" data-unit="mg">
+                    <input id="ingredient-calcium" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+                <label class="macro-field">
+                  <span class="macro-field-label">Potassium</span>
+                  <span class="macro-input" data-unit="mg">
+                    <input id="ingredient-potassium" min="0" required step="any" type="number" inputmode="decimal" value="0" />
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="recipe-photo-field">
+              <div class="recipe-photo-preview" id="ingredient-photo-preview" data-empty="true" aria-hidden="true"></div>
+              <div class="recipe-photo-controls">
+                <strong>Photo</strong>
+                <p class="recipe-photo-hint" id="ingredient-photo-message">Optional. Photos are resized before uploading.</p>
+                <div class="recipe-photo-buttons">
+                  <label class="secondary-button recipe-photo-button" for="ingredient-photo">Choose image</label>
+                  <input id="ingredient-photo" type="file" accept="image/*" />
+                  <button class="text-button" id="remove-ingredient-photo" type="button" hidden>Remove photo</button>
+                </div>
+              </div>
+            </div>
+
             <button class="primary-button" type="submit">Save ingredient</button>
           </form>
 
