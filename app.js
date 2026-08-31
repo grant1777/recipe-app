@@ -4,6 +4,8 @@ const TAKEOUT_PREFIX = "takeout:";
 const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
 const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
+const PHOTO_DECODE_TIMEOUT = 20000;
+const PHOTO_UPLOAD_TIMEOUT = 60000;
 const FIRESTORE_DOC_LIMIT = 1000000;
 const FIRESTORE_DOC_WARNING = 800000;
 const firebaseConfig = window.firebaseConfig;
@@ -283,6 +285,7 @@ async function initializeCloud() {
       writeBatch: firestoreModule.writeBatch,
       getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
+      updateDoc: firestoreModule.updateDoc,
       onSnapshot: firestoreModule.onSnapshot,
       onAuthStateChanged: authModule.onAuthStateChanged,
       GithubAuthProvider: authModule.GithubAuthProvider,
@@ -455,7 +458,14 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
 
   try {
     const ref = cloud.doc(cloud.db, "households", currentHouseholdId);
-    await cloud.setDoc(ref, state, { merge: true });
+    // updateDoc replaces each field outright. A merged setDoc would keep map
+    // entries that were deleted locally, so renamed or removed ingredients and
+    // planners came back on the next snapshot.
+    await cloud.updateDoc(ref, {
+      recipes: state.recipes,
+      ingredients: state.ingredients,
+      planners: state.planners
+    });
     if (size > FIRESTORE_DOC_WARNING) {
       setAuthMessage("Saved. This household is close to the 1MB Firestore document limit.");
     }
@@ -768,10 +778,14 @@ function setupIngredientMentions(container) {
 }
 
 function renderRecipes() {
+  const view = document.getElementById("recipes-view");
   const catalogue = document.getElementById("recipe-catalogue");
   const detail = document.getElementById("recipe-detail");
   const search = document.getElementById("recipe-search").value.trim().toLowerCase();
   const selectedRecipe = openRecipeId ? recipeById(openRecipeId) : null;
+
+  // Reading mode drops the page header on small screens so the recipe starts at the top.
+  view.classList.toggle("is-reading", Boolean(selectedRecipe));
 
   if (selectedRecipe) {
     catalogue.hidden = true;
@@ -1023,22 +1037,15 @@ function recipeIngredientMention(item) {
   if (typeof item === "string") {
     const parsed = parseIngredient(item);
     if (!parsed) return null;
-    const amount = parsed.quantity ? `${formatQuantity(parsed.quantity)}${parsed.unit ? ` ${parsed.unit}` : ""}` : item;
+    const amount = parsed.quantity ? `${formatQuantity(parsed.quantity)}${parsed.unit ? ` ${parsed.unit}` : ""}` : formatAmountsInText(item);
     return { name: parsed.name, amount };
   }
 
   const ingredient = state.ingredients[item.key] || item;
   if (!ingredient?.name) return null;
-  const quantity = Number(item.quantity || 0);
-  const servingCount = recipeItemServingCount(item, ingredient);
-  const amount = item.measure === "container"
-    ? `${formatQuantity(quantity)} whole container${quantity === 1 ? "" : "s"} (${formatQuantity(servingCount)} servings)`
-    : item.measure && item.measure !== "serving"
-      ? `${formatQuantity(quantity)} ${item.measure} (${formatQuantity(roundTo(servingCount, 3))} servings)`
-      : `${formatQuantity(quantity)} x ${ingredient.serving || "serving"}`;
   return {
     name: ingredient.name,
-    amount
+    amount: recipeIngredientAmount(item, ingredient)
   };
 }
 
@@ -1155,19 +1162,30 @@ function recipeContainers(recipe) {
 }
 
 function recipeIngredientText(item) {
-  if (typeof item === "string") return item;
+  if (typeof item === "string") return formatAmountsInText(item);
   const ingredient = state.ingredients[item.key] || item;
+  const name = ingredient.name || "Ingredient";
+  return `${recipeIngredientAmount(item, ingredient)} ${name}`.replace(/\s+/g, " ").trim();
+}
+
+// Just the amount: "1 tbsp", "2 egg", "1 container". Serving counts and container
+// maths stay in the recipe totals instead of padding out every line.
+function recipeIngredientAmount(item, ingredient) {
   const quantity = Number(item.quantity || 0);
-  const servingCount = recipeItemServingCount(item, ingredient);
   if (item.measure === "container") {
-    return `${formatQuantity(quantity)} whole container${quantity === 1 ? "" : "s"} ${ingredient.name || "Ingredient"} (${formatQuantity(servingCount)} x ${ingredient.serving || "serving"})`;
+    return `${formatQuantity(quantity)} container${quantity === 1 ? "" : "s"}`;
   }
   if (item.measure && item.measure !== "serving") {
-    const base = `${formatQuantity(quantity)} ${item.measure} ${ingredient.name || "Ingredient"}`;
-    return `${base} (${formatQuantity(roundTo(servingCount, 3))} servings, ${formatContainers(recipeItemContainerCount(item, ingredient))})`;
+    return `${formatQuantity(quantity)} ${item.measure}`;
   }
-  const base = `${formatQuantity(quantity)} x ${ingredient.serving || "serving"} ${ingredient.name || "Ingredient"}`;
-  return `${base} (${formatContainers(recipeItemContainerCount(item, ingredient))})`;
+
+  // "Serving" rows count the ingredient's own serving size, so fold the two
+  // numbers together: 2 x "1 egg" reads as "2 egg", not "2 x 1 egg".
+  const serving = parseServing(ingredient?.serving);
+  if (serving.amount > 0) {
+    return `${formatQuantity(quantity * serving.amount)} ${serving.unit === "serving" ? "" : serving.unit}`.trim();
+  }
+  return `${formatQuantity(quantity)} x ${ingredient?.serving || "serving"}`;
 }
 
 function formatMacro(value) {
@@ -1203,25 +1221,59 @@ function renderGroceries() {
   }
 
   groceryList.innerHTML = `
-    <ul>
+    <ul class="grocery-grid">
       ${[...groceries.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((item) => {
           const text = formatGroceryItem(item);
           const ingredient = findIngredient(item.name);
-          const link = ingredient?.url || walmartSearchUrl(item.name);
-          const linkLabel = ingredient ? escapeHtml(ingredient.name) : "Search Walmart";
+          const link = safeLinkUrl(ingredient?.url) || walmartSearchUrl(item.name);
+          const saved = Boolean(safeLinkUrl(ingredient?.url));
+          const image = ingredient ? ingredientImage(ingredient) : "";
           const perContainer = item.servingsPerContainer || ingredient?.servingsPerContainer;
           const containers = perContainer && item.quantity ? containersForServings(item.quantity, perContainer) : 0;
+          const visual = image
+            ? `<span class="grocery-card-visual has-image" style="background-image: url('${image}')"></span>`
+            : `<span class="grocery-card-visual">${escapeHtml(item.name.slice(0, 1).toUpperCase())}</span>`;
           return `
-            <li>
-              <span>${escapeHtml(text)}</span>
-              ${containers ? `<span class="grocery-containers">Buy ${Math.ceil(containers)} (needs ${formatContainers(containers)})</span>` : ""}
-              <a href="${escapeHtml(link)}" target="_blank" rel="noopener">${linkLabel}</a>
+            <li class="grocery-card" data-grocery-text="${escapeHtml(text)}">
+              <div class="grocery-card-head">
+                ${visual}
+                <span class="grocery-card-title">
+                  <strong>${escapeHtml(item.name)}</strong>
+                  <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
+                </span>
+              </div>
+              ${containers
+                ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers))}</span>`
+                : ""}
+              <a class="grocery-card-link ${saved ? "is-product" : "is-search"}" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">
+                <span class="grocery-card-link-label">${saved ? "Open product" : "Search Walmart"}</span>
+                <span class="grocery-card-link-url">${escapeHtml(linkDisplayUrl(link))}</span>
+              </a>
             </li>`;
         })
         .join("")}
     </ul>`;
+}
+
+// "2 cup" for measured items, "x3" when the same item shows up in several recipes.
+function groceryAmountText(item) {
+  if (item.quantity) return `${formatQuantity(item.quantity)} ${item.unit}`.replace(/\s+/g, " ").trim();
+  return item.count > 1 ? `x${item.count}` : "As needed";
+}
+
+// Shortened link text so the destination is visible on the card.
+function linkDisplayUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = decodeURIComponent(parsed.pathname + parsed.search).replace(/\/$/, "");
+    const label = `${host}${path === "/" ? "" : path}`;
+    return label.length > 46 ? `${label.slice(0, 45)}…` : label;
+  } catch (error) {
+    return url;
+  }
 }
 
 function parseRecipeIngredient(item) {
@@ -1324,6 +1376,15 @@ function formatQuantity(quantity) {
   const glyph = fractionGlyphs[text];
   if (!whole) return `${sign}${glyph || text}`;
   return glyph ? `${sign}${whole}${glyph}` : `${sign}${whole} ${text}`;
+}
+
+// Recipes imported as plain text can carry decimal amounts ("0.25 tsp salt").
+function formatAmountsInText(text) {
+  return String(text ?? "")
+    .replace(/^(\d+)\s+(?=\d*\.\d)/, "").replace(/(^|[^\w.\/])((?:\d+\s+)?\d+\/\d+|\d*\.\d+)(?![\w.\/])/g, (match, lead, amount) => {
+    const value = parseFractionInput(amount);
+    return value > 0 ? `${lead}${formatQuantity(value)}` : match;
+  });
 }
 
 // Accepts "1 1/2", "3/4", "1½" or "1.5" and returns a number.
@@ -1442,7 +1503,7 @@ function ingredientTile(ingredient) {
     ${visual}
     <span class="ingredient-tile-body">
       <strong>${escapeHtml(ingredient.name)}</strong>
-      <span class="ingredient-tile-serving">${escapeHtml(ingredient.serving)} per serving · ${formatQuantity(
+      <span class="ingredient-tile-serving">${escapeHtml(formatAmountsInText(ingredient.serving))} per serving · ${formatQuantity(
         servingsPerContainer(ingredient)
       )} per container</span>
       <span class="ingredient-tile-macros nutrition-only">${macros}</span>
@@ -2591,7 +2652,7 @@ function readNutrientInputs() {
 }
 
 function getGroceryTexts() {
-  return [...document.querySelectorAll("#grocery-list li span")].map((item) => item.textContent);
+  return [...document.querySelectorAll("#grocery-list [data-grocery-text]")].map((item) => item.dataset.groceryText);
 }
 
 function setupAuth() {
@@ -2892,7 +2953,7 @@ async function handleProfilePhotoChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  if (!file.type.startsWith("image/")) {
+  if (!isImageFile(file)) {
     setProfileMessage("Choose an image file.");
     event.target.value = "";
     return;
@@ -2955,53 +3016,88 @@ async function loadStoredProfile(user) {
   }
 }
 
+// Windows does not always register a useful MIME type for .webp (and some other
+// formats), so a picked file can arrive untyped or as application/octet-stream.
+// Fall back to the extension in either case.
+const imageFileExtensions = /\.(webp|avif|jpe?g|png|gif|bmp|heics?|heif)$/i;
+
+function isImageFile(file) {
+  if (!file) return false;
+  return String(file.type || "").startsWith("image/") || imageFileExtensions.test(file.name || "");
+}
+
 function resizeImageToDataUrl(file, size) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("the file could not be read"));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error("the file is not a readable image"));
-      image.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
-        const context = canvas.getContext("2d");
-        const scale = Math.max(size / image.width, size / image.height);
-        const width = image.width * scale;
-        const height = image.height * scale;
-        context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
-      };
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+  return withImageSource(file, (image) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    const scale = Math.max(size / image.width, size / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+    return canvas.toDataURL("image/jpeg", 0.82);
   });
 }
 
 function resizeImageToBlob(file, maxWidth) {
+  return withImageSource(file, (image) => {
+    const scale = Math.min(1, maxWidth / image.width);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))),
+        "image/jpeg",
+        0.8
+      );
+    });
+  });
+}
+
+async function withImageSource(file, draw) {
+  const image = await decodeImageFile(file);
+  try {
+    return await draw(image);
+  } finally {
+    image.close?.();
+  }
+}
+
+// createImageBitmap decodes the file's own bytes, so it copes with a .webp that
+// Windows handed over without a MIME type. The <img> fallback uses an object URL
+// rather than a data URL for the same reason: data URLs are decoded strictly by
+// their declared type, and an untyped file declares application/octet-stream.
+async function decodeImageFile(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await withTimeout(createImageBitmap(file), PHOTO_DECODE_TIMEOUT, "the image took too long to open");
+    } catch (error) {
+      console.warn("createImageBitmap could not read the photo, falling back to an <img>", error);
+    }
+  }
+
+  const url = URL.createObjectURL(file);
+  try {
+    return await loadImageElement(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function loadImageElement(src) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("the file could not be read"));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error("the file is not a readable image"));
-      image.onload = () => {
-        const scale = Math.min(1, maxWidth / image.width);
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext("2d");
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(
-          (blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))),
-          "image/jpeg",
-          0.8
-        );
-      };
-      image.src = reader.result;
+    const image = new Image();
+    const timer = setTimeout(() => reject(new Error("the image took too long to open")), PHOTO_DECODE_TIMEOUT);
+    const finish = (callback) => () => {
+      clearTimeout(timer);
+      callback();
     };
-    reader.readAsDataURL(file);
+    image.onload = finish(() => resolve(image));
+    image.onerror = finish(() => reject(new Error("the file is not a readable image")));
+    image.src = src;
   });
 }
 
@@ -3027,8 +3123,28 @@ function storagePathFor(kind, id) {
 
 async function uploadImageBlob(blob, path) {
   const ref = cloud.storageRef(cloud.storage, path);
-  await cloud.uploadBytes(ref, blob, { contentType: "image/jpeg" });
-  return cloud.getDownloadURL(ref);
+  await withTimeout(
+    cloud.uploadBytes(ref, blob, { contentType: "image/jpeg" }),
+    PHOTO_UPLOAD_TIMEOUT,
+    "the upload timed out - check your connection and try again"
+  );
+  return withTimeout(cloud.getDownloadURL(ref), PHOTO_UPLOAD_TIMEOUT, "the photo link timed out");
+}
+
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 async function resolvePhoto(kind, id, blob, keptUrl, previous) {
@@ -3102,7 +3218,7 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return null;
-  if (!file.type.startsWith("image/")) {
+  if (!isImageFile(file)) {
     setMessage("Choose an image file.");
     return null;
   }

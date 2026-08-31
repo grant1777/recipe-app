@@ -194,7 +194,7 @@
                 <p class="recipe-photo-hint" id="recipe-photo-message">Optional. Photos are resized before saving.</p>
                 <div class="recipe-photo-buttons">
                   <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
-                  <input id="recipe-photo" type="file" accept="image/*" />
+                  <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
                   <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove photo</button>
                 </div>
               </div>
@@ -333,7 +333,7 @@
                 <p class="recipe-photo-hint" id="ingredient-photo-message">Optional. Photos are resized before uploading.</p>
                 <div class="recipe-photo-buttons">
                   <label class="secondary-button recipe-photo-button" for="ingredient-photo">Choose image</label>
-                  <input id="ingredient-photo" type="file" accept="image/*" />
+                  <input id="ingredient-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
                   <button class="text-button" id="remove-ingredient-photo" type="button" hidden>Remove photo</button>
                 </div>
               </div>
@@ -381,7 +381,7 @@
             <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
             <div class="profile-photo-actions">
               <label class="light-button file-button" for="profile-photo">Choose photo</label>
-              <input id="profile-photo" type="file" accept="image/*" />
+              <input id="profile-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
               <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
             </div>
           </div>
@@ -470,6 +470,6 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260827-16"></script>
+    <script src="app.js?v=20260830-17"></script>
   </body>
 </html>

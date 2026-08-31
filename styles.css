@@ -1328,43 +1328,132 @@ body.hide-nutrition .nutrition-only {
 }
 
 .grocery-list {
+  background: none;
+  border: 0;
   min-height: 280px;
+  padding: 0;
+}
+
+.grocery-list > .empty-state {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   padding: 20px;
 }
 
-.grocery-list ul {
+.grocery-grid {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
   margin: 0;
   padding: 0;
 }
 
-.grocery-list li {
-  align-items: center;
-  border-bottom: 1px solid #eee7de;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
+.grocery-card {
+  align-content: start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
   list-style: none;
-  min-height: 42px;
-  padding: 8px 0;
+  min-width: 0;
+  padding: 14px;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-.grocery-containers {
+.grocery-card:hover,
+.grocery-card:focus-within {
+  border-color: #bd9f78;
+  box-shadow: 0 12px 28px rgba(62, 48, 35, 0.1);
+  transform: translateY(-2px);
+}
+
+.grocery-card-head {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.grocery-card-visual {
+  align-items: center;
+  aspect-ratio: 1 / 1;
+  background: linear-gradient(135deg, #d8e6dc, #f1dfbd);
+  border-radius: 10px;
+  color: #385246;
+  display: flex;
+  font-size: 1.25rem;
+  font-weight: 900;
+  justify-content: center;
+}
+
+.grocery-card-visual.has-image {
+  background-position: center;
+  background-size: cover;
+}
+
+.grocery-card-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.grocery-card-title strong {
+  font-size: 0.95rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.grocery-card-amount {
   color: var(--muted);
+  font-size: 0.78rem;
   font-weight: 800;
-  margin-left: auto;
-  white-space: nowrap;
 }
 
-.grocery-list a {
-  color: var(--accent);
-  font-weight: 800;
+.grocery-card-buy {
+  background: #f7f4ef;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  padding: 6px 9px;
+}
+
+.grocery-card-buy b {
+  color: var(--ink);
+}
+
+.grocery-card-link {
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  min-height: 42px;
+  padding: 7px 10px;
   text-decoration: none;
+}
+
+.grocery-card-link.is-product {
+  background: #f2f7f3;
+  border-color: #cfe0d4;
+}
+
+.grocery-card-link-label {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.grocery-card-link-url {
+  color: var(--muted);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.grocery-list a:hover {
+.grocery-card-link:hover .grocery-card-link-label {
   text-decoration: underline;
 }
 
@@ -1381,7 +1470,7 @@ body.hide-nutrition .nutrition-only {
 .mapping-list {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
 }
 
 .ingredient-tile {
@@ -1449,31 +1538,38 @@ body.hide-nutrition .nutrition-only {
 
 .ingredient-tile-macros {
   display: grid;
-  gap: 4px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 2px;
+  gap: 5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 4px;
 }
 
 .ingredient-macro {
+  align-items: baseline;
   background: #f7f4ef;
   border-radius: 7px;
-  display: grid;
-  gap: 1px;
-  padding: 6px 4px;
-  text-align: center;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 5px 8px;
 }
 
 .ingredient-macro em {
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-style: normal;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .ingredient-macro b {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .ingredient-tile-actions {
@@ -1614,12 +1710,61 @@ body.hide-nutrition .nutrition-only {
   }
 
   main {
-    padding: 20px;
+    padding: 12px;
+  }
+
+  .view.active {
+    gap: 16px;
   }
 
   .view-header {
     align-items: stretch;
     display: grid;
+    gap: 10px;
+  }
+
+  /* Reading a recipe: the detail page already has a back button and the title,
+     so the collection header and its search field only cost vertical space. */
+  #recipes-view.is-reading .view-header {
+    display: none;
+  }
+
+  /* Full bleed against main's padding so the recipe gets the whole width. */
+  #recipes-view.is-reading {
+    margin: -12px;
+  }
+
+  #recipes-view.is-reading .recipe-detail-page {
+    border-left: 0;
+    border-radius: 0;
+    border-right: 0;
+    border-top: 0;
+    gap: 16px;
+    max-width: none;
+    padding: 12px;
+  }
+
+  .recipe-detail-image {
+    margin-bottom: 10px;
+    max-height: 240px;
+  }
+
+  .recipe-detail-header {
+    gap: 4px;
+    padding-bottom: 12px;
+  }
+
+  .recipe-detail-layout {
+    gap: 18px;
+  }
+
+  .recipe-detail-ingredients {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .recipe-detail-method {
+    gap: 16px;
   }
 
   .week-grid,
@@ -1701,13 +1846,8 @@ body.hide-nutrition .nutrition-only {
     line-height: 1;
   }
 
-  .grocery-list li {
-    align-items: start;
-    display: grid;
-  }
-
-  .grocery-containers {
-    margin-left: 0;
+  .grocery-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .mapping-row {
