@@ -1487,7 +1487,7 @@ function ingredientTile(ingredient) {
   const image = ingredientImage(ingredient);
   const url = safeLinkUrl(ingredient.url);
   const visual = image
-    ? `<span class="ingredient-tile-visual has-image" style="background-image: url('${image}')"></span>`
+    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" /></span>`
     : `<span class="ingredient-tile-visual">${escapeHtml(ingredient.name.slice(0, 1).toUpperCase())}</span>`;
   const macros = nutrients
     .filter((nutrient) => tileNutrients.includes(nutrient.key))

@@ -1512,8 +1512,14 @@ body.hide-nutrition .nutrition-only {
 }
 
 .ingredient-tile-visual.has-image {
-  background-position: center;
-  background-size: cover;
+  background: #fff;
+}
+
+.ingredient-tile-image {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .ingredient-tile-body {
