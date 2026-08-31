@@ -792,6 +792,7 @@ function renderRecipes() {
     catalogue.hidden = true;
     detail.hidden = false;
     detail.innerHTML = recipeDetailMarkup(selectedRecipe);
+    setupCloudImageDiagnostics(detail);
     detail.querySelector("[data-back-to-recipes]").addEventListener("click", () => {
       openRecipeId = null;
       renderRecipes();
@@ -811,6 +812,7 @@ function renderRecipes() {
   catalogue.innerHTML = recipes.length
     ? groupRecipesByCategory(recipes).map(recipeCategorySection).join("")
     : '<p class="empty-state">No recipes match your search.</p>';
+  setupCloudImageDiagnostics(catalogue);
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
       openRecipeId = button.dataset.openRecipe;
@@ -867,7 +869,7 @@ function recipeCatalogueCard(recipe) {
 function recipeCatalogueVisual(recipe) {
   const image = recipeImage(recipe);
   if (image) {
-    return `<span class="recipe-catalogue-visual has-image" style="background-image: url('${image}')" aria-hidden="true"></span>`;
+    return `<span class="recipe-catalogue-visual has-image" aria-hidden="true"><img class="recipe-catalogue-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" /></span>`;
   }
   return `<span class="recipe-catalogue-visual" aria-hidden="true">${escapeHtml(recipe.name.slice(0, 1).toUpperCase())}</span>`;
 }
@@ -881,7 +883,7 @@ function recipeDetailMarkup(recipe) {
       <button class="text-button" data-back-to-recipes type="button">← All recipes</button>
       <button class="secondary-button" data-edit-open-recipe type="button">Edit recipe</button>
     </div>
-    ${recipeImage(recipe) ? `<img class="recipe-detail-image" src="${recipeImage(recipe)}" alt="${escapeHtml(recipe.name)}" />` : ""}
+    ${recipeImage(recipe) ? `<img class="recipe-detail-image" src="${escapeHtml(recipeImage(recipe))}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
     <header class="recipe-detail-header">
       <span class="category-pill">${escapeHtml(recipe.category)}</span>
       <h2>${escapeHtml(recipe.name)}</h2>
@@ -1234,7 +1236,7 @@ function renderGroceries() {
           const perContainer = item.servingsPerContainer || ingredient?.servingsPerContainer;
           const containers = perContainer && item.quantity ? containersForServings(item.quantity, perContainer) : 0;
           const visual = image
-            ? `<span class="grocery-card-visual has-image" style="background-image: url('${image}')"></span>`
+            ? `<span class="grocery-card-visual has-image"><img class="grocery-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(item.name)}" /></span>`
             : `<span class="grocery-card-visual">${escapeHtml(item.name.slice(0, 1).toUpperCase())}</span>`;
           return `
             <li class="grocery-card" data-grocery-text="${escapeHtml(text)}">
@@ -1256,6 +1258,7 @@ function renderGroceries() {
         })
         .join("")}
     </ul>`;
+  setupCloudImageDiagnostics(groceryList);
 }
 
 // "2 cup" for measured items, "x3" when the same item shows up in several recipes.
@@ -1457,6 +1460,7 @@ function renderIngredients() {
   }
 
   list.innerHTML = ingredients.map(ingredientTile).join("");
+  setupCloudImageDiagnostics(list);
 
   list.querySelectorAll("[data-edit-ingredient]").forEach((button) => {
     button.addEventListener("click", () => fillIngredientForm(state.ingredients[button.dataset.editIngredient]));
@@ -1487,7 +1491,7 @@ function ingredientTile(ingredient) {
   const image = ingredientImage(ingredient);
   const url = safeLinkUrl(ingredient.url);
   const visual = image
-    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" /></span>`
+    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(ingredient.name)}" /></span>`
     : `<span class="ingredient-tile-visual">${escapeHtml(ingredient.name.slice(0, 1).toUpperCase())}</span>`;
   const macros = nutrients
     .filter((nutrient) => tileNutrients.includes(nutrient.key))
@@ -3120,6 +3124,34 @@ function recipeImage(recipe) {
 
 function ingredientImage(ingredient) {
   return safeImageUrl(ingredient?.image);
+}
+
+function setupCloudImageDiagnostics(container) {
+  container?.querySelectorAll("img[data-cloud-image]").forEach((image) => {
+    const wrapper = image.parentElement;
+    const markLoaded = () => {
+      if (wrapper) wrapper.dataset.imageLoaded = "true";
+    };
+    const markFailed = () => {
+      if (wrapper) wrapper.dataset.imageError = "true";
+      image.hidden = true;
+      let source = "invalid URL";
+      try {
+        const url = new URL(image.currentSrc || image.src);
+        source = url.origin + url.pathname;
+      } catch (error) {
+        // Keep download tokens out of diagnostics if the URL cannot be parsed.
+      }
+      console.error("Cloud image failed to display", { label: image.dataset.imageLabel || "Image", source });
+    };
+
+    image.addEventListener("load", markLoaded, { once: true });
+    image.addEventListener("error", markFailed, { once: true });
+    if (image.complete) {
+      if (image.naturalWidth > 0) markLoaded();
+      else markFailed();
+    }
+  });
 }
 
 function storagePathFor(kind, id, contentType = "image/jpeg") {

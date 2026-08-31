@@ -673,9 +673,15 @@ body.hide-nutrition .nutrition-only {
 }
 
 .recipe-catalogue-visual.has-image {
-  background-position: center;
-  background-size: cover;
+  background: #fff;
   min-height: 160px;
+}
+
+.recipe-catalogue-image {
+  display: block;
+  height: 160px;
+  object-fit: cover;
+  width: 100%;
 }
 
 .recipe-catalogue-body {
@@ -1389,8 +1395,15 @@ body.hide-nutrition .nutrition-only {
 }
 
 .grocery-card-visual.has-image {
-  background-position: center;
-  background-size: cover;
+  background: #fff;
+  overflow: hidden;
+}
+
+.grocery-card-image {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .grocery-card-title {
@@ -1519,6 +1532,21 @@ body.hide-nutrition .nutrition-only {
   display: block;
   height: 100%;
   object-fit: contain;
+  width: 100%;
+}
+
+[data-image-error="true"]::after {
+  align-items: center;
+  color: var(--muted);
+  content: "Photo unavailable";
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 100%;
+  justify-content: center;
+  min-height: 42px;
+  padding: 8px;
+  text-align: center;
   width: 100%;
 }
 
