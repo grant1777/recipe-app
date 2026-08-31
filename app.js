@@ -250,7 +250,9 @@ function normalizeIngredientCatalog(value) {
           serving: item.serving || "1 serving",
           ...nutrientValues(item),
           servingsPerContainer: servingsPerContainer(item),
-          url: item.url || walmartSearchUrl(name)
+          url: item.url || walmartSearchUrl(name),
+          image: safeImageUrl(item.image),
+          imagePath: typeof item.imagePath === "string" ? item.imagePath : ""
         }
       ];
     })
