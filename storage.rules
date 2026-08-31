@@ -6,10 +6,18 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function approvedUser() {
+      return signedIn()
+        && request.auth.uid in [
+          '3i7agqeptyTYIu7MVS2Vc4sLXLp2',
+          '7OaNUgKTq6UVOc5pikdPiFTou0t2'
+        ];
+    }
+
     function isHouseholdMember(householdId) {
       // Cross-service lookup; the Storage service agent needs the
       // roles/firebaserules.firestoreServiceAgent IAM role.
-      return signedIn()
+      return approvedUser()
         && firestore.exists(/databases/(default)/documents/households/$(householdId)/members/$(request.auth.uid));
     }
 

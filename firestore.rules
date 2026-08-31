@@ -6,21 +6,29 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function approvedUser() {
+      return signedIn()
+        && request.auth.uid in [
+          '3i7agqeptyTYIu7MVS2Vc4sLXLp2',
+          '7OaNUgKTq6UVOc5pikdPiFTou0t2'
+        ];
+    }
+
     function householdDoc(householdId) {
       return get(/databases/$(database)/documents/households/$(householdId));
     }
 
     function isHouseholdMember(householdId) {
-      return signedIn()
+      return approvedUser()
         && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
     }
 
     match /users/{userId} {
-      allow read, create, update: if signedIn() && request.auth.uid == userId;
+      allow read, create, update: if approvedUser() && request.auth.uid == userId;
     }
 
     match /households/{householdId} {
-      allow create: if signedIn()
+      allow create: if approvedUser()
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.inviteToken is string;
 
@@ -30,10 +38,10 @@ service cloud.firestore {
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.inviteToken == resource.data.inviteToken;
 
-      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow delete: if approvedUser() && resource.data.ownerUid == request.auth.uid;
 
       match /members/{memberId} {
-        allow create: if signedIn()
+        allow create: if approvedUser()
           && request.auth.uid == memberId
           && request.resource.data.uid == request.auth.uid
           && exists(/databases/$(database)/documents/households/$(householdId))
@@ -42,13 +50,13 @@ service cloud.firestore {
             || request.resource.data.inviteToken == householdDoc(householdId).data.inviteToken
           );
 
-        allow read: if signedIn()
+        allow read: if approvedUser()
           && (
             request.auth.uid == memberId
             || isHouseholdMember(householdId)
           );
 
-        allow update, delete: if signedIn() && request.auth.uid == memberId;
+        allow update, delete: if approvedUser() && request.auth.uid == memberId;
       }
     }
   }
