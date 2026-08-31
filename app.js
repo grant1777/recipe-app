@@ -6,7 +6,9 @@ const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
 const PHOTO_DECODE_TIMEOUT = 20000;
 const PHOTO_UPLOAD_TIMEOUT = 60000;
-const PHOTO_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const PHOTO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
+const OPTIONAL_PHOTO_MESSAGE = "Optional. Maximum file size: 2 MB.";
+const ACCESS_ADMIN_UID = "7OaNUgKTq6UVOc5pikdPiFTou0t2";
 const FIRESTORE_DOC_LIMIT = 1000000;
 const FIRESTORE_DOC_WARNING = 800000;
 const firebaseConfig = window.firebaseConfig;
@@ -116,6 +118,8 @@ const customServingUnit = "__other__";
 const authEls = {
   appShell: document.getElementById("app-shell"),
   signedOut: document.getElementById("signed-out-panel"),
+  accessPending: document.getElementById("access-pending-panel"),
+  accessPendingIdentity: document.getElementById("access-pending-identity"),
   householdPanel: document.getElementById("household-panel"),
   householdAccount: document.getElementById("household-account"),
   householdMessage: document.getElementById("household-message"),
@@ -135,6 +139,10 @@ const authEls = {
   profileMessage: document.getElementById("profile-message"),
   hideNutrition: document.getElementById("hide-nutrition"),
   settingsHouseholdMessage: document.getElementById("settings-household-message"),
+  accessManagement: document.getElementById("access-management"),
+  accessRequestList: document.getElementById("access-request-list"),
+  approvedUserList: document.getElementById("approved-user-list"),
+  accessManagementMessage: document.getElementById("access-management-message"),
   signedIn: document.getElementById("signed-in-panel"),
   githubButton: document.getElementById("sign-in-github"),
   gateStatus: document.getElementById("gate-status"),
@@ -156,7 +164,12 @@ let unsubscribeCloudState = null;
 let currentHouseholdId = null;
 let currentInviteCode = null;
 let unsubscribeMembers = null;
+let unsubscribeAccessApproval = null;
+let unsubscribeAccessRequests = null;
+let unsubscribeApprovedUsers = null;
 let householdMembers = [];
+let accessRequests = [];
+let approvedUsers = [];
 let householdOwnerUid = null;
 let profileDraftPhoto = "";
 let recipeDraftImage = "";
@@ -323,6 +336,9 @@ async function handleAuthChange(user) {
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
   clearHouseholdMembers();
+  unsubscribeAccessApproval?.();
+  unsubscribeAccessApproval = null;
+  authEls.accessPending.hidden = true;
 
   if (!user) {
     state = createSignedOutState();
@@ -347,6 +363,12 @@ async function handleAuthChange(user) {
   setAuthMessage("");
 
   try {
+    if (!(await hasApprovedAccess(user))) {
+      await submitAccessRequest(user);
+      showAccessPending(user);
+      return;
+    }
+
     const userRef = cloud.doc(cloud.db, "users", user.uid);
     const userSnapshot = await cloud.getDoc(userRef);
     const householdId = userSnapshot.data()?.householdId;
@@ -359,6 +381,41 @@ async function handleAuthChange(user) {
   } catch (error) {
     handleSyncError("Could not load your household membership", error);
   }
+}
+
+async function hasApprovedAccess(user) {
+  if (user.uid === ACCESS_ADMIN_UID) return true;
+  const snapshot = await cloud.getDoc(cloud.doc(cloud.db, "approvedUsers", user.uid));
+  return snapshot.exists();
+}
+
+async function submitAccessRequest(user) {
+  const requestRef = cloud.doc(cloud.db, "accessRequests", user.uid);
+  await cloud.setDoc(requestRef, {
+    uid: user.uid,
+    email: user.email || "",
+    displayName: user.displayName || "GitHub account",
+    requestedAt: new Date().toISOString()
+  });
+}
+
+function showAccessPending(user) {
+  authEls.signedOut.hidden = true;
+  authEls.householdPanel.hidden = true;
+  authEls.appShell.hidden = true;
+  authEls.signedIn.hidden = true;
+  authEls.accessPending.hidden = false;
+  authEls.accessPendingIdentity.textContent = `${user.email || user.displayName || "GitHub account"} · ${user.uid}`;
+  setAccountStatus("checking", "Approval pending", "Database access is locked");
+
+  unsubscribeAccessApproval?.();
+  const approvalRef = cloud.doc(cloud.db, "approvedUsers", user.uid);
+  unsubscribeAccessApproval = cloud.onSnapshot(approvalRef, (snapshot) => {
+    if (!snapshot.exists()) return;
+    unsubscribeAccessApproval?.();
+    unsubscribeAccessApproval = null;
+    void handleAuthChange(user);
+  });
 }
 
 async function applyStoredProfileLabel(user) {
@@ -403,6 +460,7 @@ function subscribeToHousehold(householdId) {
 
     const household = snapshot.data();
     householdOwnerUid = household.ownerUid || null;
+    subscribeToAccessManagement();
     renderHouseholdMembers();
     state = normalizeState(household);
     currentInviteCode = `${householdId}.${household.inviteToken}`;
@@ -1231,27 +1289,26 @@ function renderGroceries() {
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((item) => {
           const text = formatGroceryItem(item);
-          const ingredient = findIngredient(item.name);
+          const ingredient = state.ingredients[item.key] || findIngredient(item.name);
           const link = safeLinkUrl(ingredient?.url) || walmartSearchUrl(item.name);
           const saved = Boolean(safeLinkUrl(ingredient?.url));
           const image = ingredient ? ingredientImage(ingredient) : "";
           const perContainer = item.servingsPerContainer || ingredient?.servingsPerContainer;
           const containers = perContainer && item.quantity ? containersForServings(item.quantity, perContainer) : 0;
+          const initial = escapeHtml(item.name.slice(0, 1).toUpperCase());
           const visual = image
-            ? `<span class="grocery-card-visual has-image"><img class="grocery-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(item.name)}" /></span>`
-            : `<span class="grocery-card-visual">${escapeHtml(item.name.slice(0, 1).toUpperCase())}</span>`;
+            ? `<span class="grocery-card-visual has-image"><span class="grocery-card-initial">${initial}</span><img class="grocery-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(item.name)}" /></span>`
+            : `<span class="grocery-card-visual"><span class="grocery-card-initial">${initial}</span></span>`;
           return `
             <li class="grocery-card" data-grocery-text="${escapeHtml(text)}">
-              <div class="grocery-card-head">
-                ${visual}
-                <span class="grocery-card-title">
-                  <strong>${escapeHtml(item.name)}</strong>
-                  <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
-                </span>
+              ${visual}
+              <div class="grocery-card-body">
+                <strong class="grocery-card-name">${escapeHtml(item.name)}</strong>
+                <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
+                ${containers
+                  ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers))}</span>`
+                  : ""}
               </div>
-              ${containers
-                ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers))}</span>`
-                : ""}
               <a class="grocery-card-link ${saved ? "is-product" : "is-search"}" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">
                 <span class="grocery-card-link-label">${saved ? "Open product" : "Search Walmart"}</span>
                 <span class="grocery-card-link-url">${escapeHtml(linkDisplayUrl(link))}</span>
@@ -1811,7 +1868,7 @@ function applyImportedRecipe(parsed) {
 
   recipeDraftNutrition = parsed.nutrition;
   recipeDraftImage = safeImageUrl(parsed.image);
-  setRecipePhotoMessage(recipeDraftImage ? "Photo linked from the source site." : "Optional. Photos are resized before uploading.");
+  setRecipePhotoMessage(recipeDraftImage ? "Photo linked from the source site." : OPTIONAL_PHOTO_MESSAGE);
   renderRecipePhotoPreview();
   document.getElementById("recipe-name").focus({ preventScroll: true });
 }
@@ -2026,7 +2083,7 @@ function setupForms() {
     resetIngredientMacroInputs();
     clearIngredientPhotoDraft();
     ingredientDraftImage = "";
-    setIngredientPhotoMessage("Optional. Photos are resized before uploading.");
+    setIngredientPhotoMessage(OPTIONAL_PHOTO_MESSAGE);
     renderIngredientPhotoPreview();
     renderAll();
 
@@ -2139,7 +2196,7 @@ function fillRecipeForm(recipe) {
   recipeDraftNutrition = null;
   recipeDraftImage = recipeImage(recipe);
   document.getElementById("recipe-photo").value = "";
-  setRecipePhotoMessage(recipeDraftImage ? "Photo attached." : "Optional. Photos are resized before uploading.");
+  setRecipePhotoMessage(recipeDraftImage ? "Photo attached." : OPTIONAL_PHOTO_MESSAGE);
   renderRecipePhotoPreview();
 
   const ingredientRows = document.getElementById("recipe-ingredient-rows");
@@ -2172,7 +2229,7 @@ function resetRecipeForm() {
   recipeDraftNutrition = null;
   recipeDraftImage = "";
   document.getElementById("recipe-photo").value = "";
-  setRecipePhotoMessage("Optional. Photos are resized before uploading.");
+  setRecipePhotoMessage(OPTIONAL_PHOTO_MESSAGE);
   renderRecipePhotoPreview();
 }
 
@@ -2635,7 +2692,7 @@ function fillIngredientForm(ingredient) {
   clearIngredientPhotoDraft();
   ingredientDraftImage = ingredientImage(ingredient);
   document.getElementById("ingredient-photo").value = "";
-  setIngredientPhotoMessage(ingredientDraftImage ? "Photo attached." : "Optional. Photos are resized before uploading.");
+  setIngredientPhotoMessage(ingredientDraftImage ? "Photo attached." : OPTIONAL_PHOTO_MESSAGE);
   renderIngredientPhotoPreview();
   document.getElementById("ingredient-name").focus();
 }
@@ -2706,6 +2763,10 @@ function setupAuth() {
     await cloud.signOut(cloud.auth);
   });
   document.getElementById("setup-sign-out").addEventListener("click", async () => {
+    if (!cloud) return;
+    await cloud.signOut(cloud.auth);
+  });
+  document.getElementById("pending-sign-out").addEventListener("click", async () => {
     if (!cloud) return;
     await cloud.signOut(cloud.auth);
   });
@@ -2844,7 +2905,116 @@ function clearHouseholdMembers() {
   unsubscribeMembers = null;
   householdMembers = [];
   householdOwnerUid = null;
+  clearAccessManagement();
   setMembersPlaceholder("Loading members...");
+}
+
+function subscribeToAccessManagement() {
+  const uid = cloud?.auth.currentUser?.uid;
+  const canManage = uid === ACCESS_ADMIN_UID && uid === householdOwnerUid;
+  authEls.accessManagement.hidden = !canManage;
+  if (!canManage || unsubscribeAccessRequests || unsubscribeApprovedUsers) return;
+
+  unsubscribeAccessRequests = cloud.onSnapshot(cloud.collection(cloud.db, "accessRequests"), (snapshot) => {
+    accessRequests = snapshot.docs.map((requestDoc) => ({ uid: requestDoc.id, ...requestDoc.data() }));
+    renderAccessManagement();
+  }, (error) => {
+    authEls.accessManagementMessage.textContent = "Could not load access requests: " + error.message;
+  });
+
+  unsubscribeApprovedUsers = cloud.onSnapshot(cloud.collection(cloud.db, "approvedUsers"), (snapshot) => {
+    approvedUsers = snapshot.docs.map((userDoc) => ({ uid: userDoc.id, ...userDoc.data() }));
+    renderAccessManagement();
+  }, (error) => {
+    authEls.accessManagementMessage.textContent = "Could not load approved users: " + error.message;
+  });
+}
+
+function clearAccessManagement() {
+  unsubscribeAccessRequests?.();
+  unsubscribeApprovedUsers?.();
+  unsubscribeAccessRequests = null;
+  unsubscribeApprovedUsers = null;
+  accessRequests = [];
+  approvedUsers = [];
+  if (authEls.accessManagement) authEls.accessManagement.hidden = true;
+}
+
+function renderAccessManagement() {
+  if (!authEls.accessManagement || authEls.accessManagement.hidden) return;
+  const approvedIds = new Set(approvedUsers.map((user) => user.uid));
+  const pending = accessRequests.filter((request) => !approvedIds.has(request.uid));
+
+  authEls.accessRequestList.innerHTML = pending.length
+    ? pending.map((request) => accessUserMarkup(request, "approve")).join("")
+    : '<p class="profile-hint">No pending requests.</p>';
+  authEls.approvedUserList.innerHTML = approvedUsers.length
+    ? [...approvedUsers]
+        .sort((a, b) => accessUserLabel(a).localeCompare(accessUserLabel(b)))
+        .map((user) => accessUserMarkup(user, user.uid === ACCESS_ADMIN_UID ? "owner" : "revoke"))
+        .join("")
+    : '<p class="profile-hint">No approved users found.</p>';
+
+  authEls.accessRequestList.querySelectorAll("[data-approve-user]").forEach((button) => {
+    button.addEventListener("click", () => approveAccessRequest(button.dataset.approveUser));
+  });
+  authEls.approvedUserList.querySelectorAll("[data-revoke-user]").forEach((button) => {
+    button.addEventListener("click", () => revokeUserAccess(button.dataset.revokeUser));
+  });
+}
+
+function accessUserLabel(user) {
+  return user.displayName || user.email || user.uid || "Firebase user";
+}
+
+function accessUserMarkup(user, action) {
+  const detail = user.email || user.uid;
+  const button = action === "approve"
+    ? `<button class="primary-button" data-approve-user="${escapeHtml(user.uid)}" type="button">Approve</button>`
+    : action === "revoke"
+      ? `<button class="danger-button" data-revoke-user="${escapeHtml(user.uid)}" type="button">Revoke</button>`
+      : '<span class="member-badge">Owner</span>';
+  return `
+    <div class="access-user-row">
+      <span><strong>${escapeHtml(accessUserLabel(user))}</strong><small>${escapeHtml(detail)}</small></span>
+      ${button}
+    </div>`;
+}
+
+async function approveAccessRequest(uid) {
+  const request = accessRequests.find((item) => item.uid === uid);
+  if (!request || cloud?.auth.currentUser?.uid !== ACCESS_ADMIN_UID) return;
+  authEls.accessManagementMessage.textContent = "Approving access...";
+  try {
+    const batch = cloud.writeBatch(cloud.db);
+    batch.set(cloud.doc(cloud.db, "approvedUsers", uid), {
+      uid,
+      email: request.email || "",
+      displayName: request.displayName || "GitHub account",
+      approvedAt: new Date().toISOString(),
+      approvedBy: ACCESS_ADMIN_UID
+    });
+    batch.delete(cloud.doc(cloud.db, "accessRequests", uid));
+    await batch.commit();
+    authEls.accessManagementMessage.textContent = `${accessUserLabel(request)} can now access the database.`;
+  } catch (error) {
+    authEls.accessManagementMessage.textContent = "Could not approve access: " + error.message;
+  }
+}
+
+async function revokeUserAccess(uid) {
+  const user = approvedUsers.find((item) => item.uid === uid);
+  if (!user || uid === ACCESS_ADMIN_UID || cloud?.auth.currentUser?.uid !== ACCESS_ADMIN_UID) return;
+  if (!window.confirm(`Revoke database access for ${accessUserLabel(user)}?`)) return;
+  authEls.accessManagementMessage.textContent = "Revoking access...";
+  try {
+    const batch = cloud.writeBatch(cloud.db);
+    batch.delete(cloud.doc(cloud.db, "approvedUsers", uid));
+    await batch.commit();
+    authEls.accessManagementMessage.textContent = `${accessUserLabel(user)} can no longer access the database.`;
+  } catch (error) {
+    authEls.accessManagementMessage.textContent = "Could not revoke access: " + error.message;
+  }
 }
 
 function setMembersPlaceholder(text) {
@@ -2962,6 +3132,11 @@ async function handleProfilePhotoChange(event) {
 
   if (!isImageFile(file)) {
     setProfileMessage("Choose an image file.");
+    event.target.value = "";
+    return;
+  }
+  if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
+    setProfileMessage("Images must be smaller than 2 MB.");
     event.target.value = "";
     return;
   }
@@ -3262,6 +3437,10 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
     setMessage("Choose an image file.");
     return null;
   }
+  if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
+    setMessage("Images must be smaller than 2 MB.");
+    return null;
+  }
 
   setMessage("Preparing your photo...");
   try {
@@ -3269,9 +3448,6 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
     // store WebP directly, so preserve its bytes and MIME type instead of routing
     // it through canvas. Other formats are still resized and encoded as JPEG.
     if (isWebpFile(file)) {
-      if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
-        throw new Error("WebP photos must be smaller than 5 MB");
-      }
       const blob = file.slice(0, file.size, "image/webp");
       setMessage("Photo ready - it uploads when you save.");
       return blob;

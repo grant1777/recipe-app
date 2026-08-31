@@ -6,12 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAccessAdmin() {
+      return signedIn() && request.auth.uid == '7OaNUgKTq6UVOc5pikdPiFTou0t2';
+    }
+
     function approvedUser() {
       return signedIn()
-        && request.auth.uid in [
-          '3i7agqeptyTYIu7MVS2Vc4sLXLp2',
-          '7OaNUgKTq6UVOc5pikdPiFTou0t2'
-        ];
+        && (
+          isAccessAdmin()
+          || exists(/databases/$(database)/documents/approvedUsers/$(request.auth.uid))
+        );
     }
 
     function householdDoc(householdId) {
@@ -21,6 +25,35 @@ service cloud.firestore {
     function isHouseholdMember(householdId) {
       return approvedUser()
         && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    match /approvedUsers/{userId} {
+      allow get: if signedIn() && (isAccessAdmin() || request.auth.uid == userId);
+      allow list, create, update, delete: if isAccessAdmin();
+    }
+
+    match /accessRequests/{userId} {
+      allow get: if signedIn() && (isAccessAdmin() || request.auth.uid == userId);
+      allow list: if isAccessAdmin();
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'displayName', 'requestedAt'])
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.requestedAt is string
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.displayName.size() <= 100
+        && (
+          (
+            'email' in request.auth.token
+            && 'email_verified' in request.auth.token
+            && request.auth.token.email_verified == true
+            && request.resource.data.email == request.auth.token.email
+          )
+          || (!('email' in request.auth.token) && request.resource.data.email == '')
+        );
+      allow delete: if signedIn() && (isAccessAdmin() || request.auth.uid == userId);
     }
 
     match /users/{userId} {

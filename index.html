@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css?v=20260830-20" />
+    <link rel="stylesheet" href="styles.css?v=20260830-22" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -14,6 +14,16 @@
         <p id="gate-status">Checking your Firebase session...</p>
         <button class="primary-button full-button" id="sign-in-github" type="button" disabled>Sign in with GitHub</button>
         <p id="auth-message" class="auth-message" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="auth-gate" id="access-pending-panel" aria-labelledby="access-pending-title" hidden>
+      <div class="login-panel">
+        <p class="eyebrow">Signed in with GitHub</p>
+        <h1 id="access-pending-title">Approval required</h1>
+        <p>Your request was sent to the site owner. This account cannot access database or image data until it is approved.</p>
+        <p class="access-pending-identity" id="access-pending-identity"></p>
+        <button class="light-button full-button" id="pending-sign-out" type="button">Sign out</button>
       </div>
     </section>
 
@@ -191,7 +201,7 @@
               <div class="recipe-photo-preview" id="recipe-photo-preview" data-empty="true" aria-hidden="true"></div>
               <div class="recipe-photo-controls">
                 <strong>Photo</strong>
-                <p class="recipe-photo-hint" id="recipe-photo-message">Optional. Photos are resized before saving.</p>
+                <p class="recipe-photo-hint" id="recipe-photo-message">Optional. Maximum file size: 2 MB.</p>
                 <div class="recipe-photo-buttons">
                   <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
                   <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
@@ -330,7 +340,7 @@
               <div class="recipe-photo-preview" id="ingredient-photo-preview" data-empty="true" aria-hidden="true"></div>
               <div class="recipe-photo-controls">
                 <strong>Photo</strong>
-                <p class="recipe-photo-hint" id="ingredient-photo-message">Optional. Photos are resized before uploading.</p>
+                <p class="recipe-photo-hint" id="ingredient-photo-message">Optional. Maximum file size: 2 MB.</p>
                 <div class="recipe-photo-buttons">
                   <label class="secondary-button recipe-photo-button" for="ingredient-photo">Choose image</label>
                   <input id="ingredient-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
@@ -417,6 +427,16 @@
           </div>
         </section>
 
+        <section class="settings-section access-management" id="access-management" aria-labelledby="access-management-title" hidden>
+          <h3 id="access-management-title">Database access</h3>
+          <p class="profile-hint">Only approved Firebase accounts can use household data or upload images.</p>
+          <h4>Waiting for approval</h4>
+          <div class="access-user-list" id="access-request-list"><p class="profile-hint">No pending requests.</p></div>
+          <h4>Approved users</h4>
+          <div class="access-user-list" id="approved-user-list"><p class="profile-hint">Loading approved users...</p></div>
+          <p id="access-management-message" class="auth-message" aria-live="polite"></p>
+        </section>
+
         <div class="profile-dialog-actions">
           <button class="text-button" id="cancel-profile" type="button">Close</button>
           <button class="primary-button" id="save-profile" type="button">Save profile</button>
@@ -470,6 +490,6 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260830-21"></script>
+    <script src="app.js?v=20260830-22"></script>
   </body>
 </html>

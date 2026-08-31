@@ -6,12 +6,16 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function isAccessAdmin() {
+      return signedIn() && request.auth.uid == '7OaNUgKTq6UVOc5pikdPiFTou0t2';
+    }
+
     function approvedUser() {
       return signedIn()
-        && request.auth.uid in [
-          '3i7agqeptyTYIu7MVS2Vc4sLXLp2',
-          '7OaNUgKTq6UVOc5pikdPiFTou0t2'
-        ];
+        && (
+          isAccessAdmin()
+          || firestore.exists(/databases/(default)/documents/approvedUsers/$(request.auth.uid))
+        );
     }
 
     function isHouseholdMember(householdId) {
@@ -30,7 +34,7 @@ service firebase.storage {
       allow read: if isHouseholdMember(householdId);
       allow create, update: if isHouseholdMember(householdId)
         && folder in ['recipes', 'ingredients']
-        && isImageUnder(5 * 1024 * 1024);
+        && isImageUnder(2 * 1024 * 1024);
       allow delete: if isHouseholdMember(householdId);
     }
   }
