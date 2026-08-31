@@ -6,6 +6,7 @@ const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
 const PHOTO_DECODE_TIMEOUT = 20000;
 const PHOTO_UPLOAD_TIMEOUT = 60000;
+const PHOTO_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 const FIRESTORE_DOC_LIMIT = 1000000;
 const FIRESTORE_DOC_WARNING = 800000;
 const firebaseConfig = window.firebaseConfig;
@@ -3026,6 +3027,10 @@ function isImageFile(file) {
   return String(file.type || "").startsWith("image/") || imageFileExtensions.test(file.name || "");
 }
 
+function isWebpFile(file) {
+  return String(file?.type || "").toLowerCase() === "image/webp" || /\.webp$/i.test(file?.name || "");
+}
+
 function resizeImageToDataUrl(file, size) {
   return withImageSource(file, (image) => {
     const canvas = document.createElement("canvas");
@@ -3117,14 +3122,15 @@ function ingredientImage(ingredient) {
   return safeImageUrl(ingredient?.image);
 }
 
-function storagePathFor(kind, id) {
-  return `households/${currentHouseholdId}/${kind}/${id}.jpg`;
+function storagePathFor(kind, id, contentType = "image/jpeg") {
+  const extension = contentType === "image/webp" ? "webp" : "jpg";
+  return `households/${currentHouseholdId}/${kind}/${id}.${extension}`;
 }
 
 async function uploadImageBlob(blob, path) {
   const ref = cloud.storageRef(cloud.storage, path);
   await withTimeout(
-    cloud.uploadBytes(ref, blob, { contentType: "image/jpeg" }),
+    cloud.uploadBytes(ref, blob, { contentType: blob.type || "image/jpeg" }),
     PHOTO_UPLOAD_TIMEOUT,
     "the upload timed out - check your connection and try again"
   );
@@ -3150,7 +3156,7 @@ function withTimeout(promise, ms, message) {
 async function resolvePhoto(kind, id, blob, keptUrl, previous) {
   const previousPath = previous?.imagePath || "";
   if (blob) {
-    const path = storagePathFor(kind, id);
+    const path = storagePathFor(kind, id, blob.type);
     const image = await uploadImageBlob(blob, path);
     if (previousPath && previousPath !== path) await deleteStoredImage(previousPath);
     return { image, imagePath: path };
@@ -3225,6 +3231,17 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
 
   setMessage("Preparing your photo...");
   try {
+    // Some browsers stall while decoding particular WebP variants. Firebase can
+    // store WebP directly, so preserve its bytes and MIME type instead of routing
+    // it through canvas. Other formats are still resized and encoded as JPEG.
+    if (isWebpFile(file)) {
+      if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
+        throw new Error("WebP photos must be smaller than 5 MB");
+      }
+      const blob = file.slice(0, file.size, "image/webp");
+      setMessage("Photo ready - it uploads when you save.");
+      return blob;
+    }
     const blob = await resizeImageToBlob(file, maxWidth);
     setMessage("Photo ready - it uploads when you save.");
     return blob;
