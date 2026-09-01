@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css?v=20260830-22" />
+    <link rel="stylesheet" href="styles.css?v=20260901-33" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -47,7 +47,7 @@
     <div class="app-shell" id="app-shell" hidden>
       <header class="mobile-app-header">
         <strong>Recipe Planner</strong>
-        <button class="secondary-button" id="mobile-open-settings" type="button" aria-label="Open settings">Settings</button>
+        <button class="mobile-settings-button" id="mobile-open-settings" type="button" aria-label="Open settings" title="Settings"><span aria-hidden="true">⚙</span></button>
       </header>
       <aside class="sidebar" aria-label="App navigation">
         <div>
@@ -58,7 +58,9 @@
           <button class="tab-button active" data-tab="planner" type="button"><span class="tab-icon" aria-hidden="true">🗓️</span><span>Planner</span></button>
           <button class="tab-button" data-tab="recipes" type="button"><span class="tab-icon" aria-hidden="true">📖</span><span>Recipes</span></button>
           <button class="tab-button" data-tab="groceries" type="button"><span class="tab-icon" aria-hidden="true">🛒</span><span>Groceries</span></button>
+          <button class="tab-action" id="log-cooked" type="button" aria-label="Log a cooked recipe"><span aria-hidden="true">+</span></button>
           <button class="tab-button" data-tab="ingredients" type="button"><span class="tab-icon" aria-hidden="true">🥕</span><span>Ingredients</span></button>
+          <button class="tab-button" data-tab="kitchen-stock" type="button"><span class="tab-icon" aria-hidden="true">🧺</span><span class="wide-label">Kitchen stock</span><span class="narrow-label">Stock</span></button>
           <button class="tab-button nutrition-only" data-tab="macros" type="button"><span class="tab-icon" aria-hidden="true">📊</span><span>Macros</span></button>
         </nav>
         <div class="household-note">
@@ -91,27 +93,54 @@
 
       <main>
         <section class="view active" id="planner-view" aria-labelledby="planner-title">
-          <div class="view-header">
+          <div class="view-header planner-view-header">
             <div>
               <p class="eyebrow">Weekly meal planner</p>
               <h2 id="planner-title">Plan meals by day</h2>
             </div>
-            <div class="week-controls" aria-label="Week navigation">
-              <button class="secondary-button" id="previous-week" type="button">Previous</button>
-              <button class="secondary-button" id="current-week" type="button">This week</button>
-              <button class="secondary-button" id="next-week" type="button">Next</button>
-              <button class="primary-button" id="clear-week" type="button">Clear week</button>
+            <div class="planner-toolbar">
+              <label class="planner-toolbar-field" for="active-planner">
+                <span>Planner</span>
+                <select id="active-planner" aria-label="Active planner"></select>
+              </label>
+              <button class="secondary-button" id="manage-planners" type="button">
+                <span class="wide-label">Household planners</span>
+                <span class="narrow-label">Planners</span>
+              </button>
             </div>
           </div>
-          <div class="planner-toolbar">
-            <label for="active-planner">Planner</label>
-            <select id="active-planner" aria-label="Active planner"></select>
-            <button class="secondary-button" id="manage-planners" type="button">Household planners</button>
+
+          <div class="week-bar">
+            <div class="week-nav" role="group" aria-label="Week navigation">
+              <button class="icon-button" id="previous-week" type="button" aria-label="Previous week">
+                <span aria-hidden="true">‹</span>
+              </button>
+              <div class="week-nav-label">
+                <strong id="week-range">Week range</strong>
+                <span id="week-relative">This week</span>
+              </div>
+              <button class="icon-button" id="next-week" type="button" aria-label="Next week">
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+            <div class="week-bar-meta">
+              <div class="week-progress" id="week-progress">
+                <div class="week-progress-track"><span class="week-progress-fill" id="week-progress-fill"></span></div>
+                <span class="week-progress-label" id="week-progress-label">0 of 21 meals planned</span>
+              </div>
+              <div class="week-actions">
+                <div class="planner-modes" role="group" aria-label="Planner layout">
+                  <button class="planner-mode active" data-planner-mode="day" type="button" aria-pressed="true">Day</button>
+                  <button class="planner-mode" data-planner-mode="week" type="button" aria-pressed="false">Week</button>
+                </div>
+                <button class="secondary-button" id="current-week" type="button">Today</button>
+                <button class="danger-button" id="clear-week" type="button">Clear week</button>
+              </div>
+            </div>
           </div>
-          <div class="week-strip">
-            <strong id="week-range">Week range</strong>
-          </div>
-          <div class="week-grid" id="week-grid"></div>
+
+          <div class="day-strip" id="day-strip" role="group" aria-label="Day of week"></div>
+          <div class="week-grid" id="week-grid" data-planner-mode="day"></div>
         </section>
 
         <section class="view" id="recipes-view" aria-labelledby="recipes-title">
@@ -122,10 +151,13 @@
             </div>
             <div class="recipe-page-actions">
               <label class="recipe-search" for="recipe-search">
-                Search recipes
+                <span>Search recipes</span>
                 <input id="recipe-search" type="search" placeholder="Search by name or category" />
               </label>
-              <button class="primary-button" id="open-recipe-editor" type="button">+ Add recipe</button>
+              <button class="primary-button" id="open-recipe-editor" type="button">
+                <span class="wide-label">+ Add recipe</span>
+                <span class="narrow-label">+ Add</span>
+              </button>
             </div>
           </div>
           <div class="recipe-catalogue" id="recipe-catalogue"></div>
@@ -182,14 +214,7 @@
               </label>
               <label>
                 Category
-                <select id="recipe-category">
-                  <option>Breakfast</option>
-                  <option>Lunch</option>
-                  <option>Dinner</option>
-                  <option>Dessert</option>
-                  <option>Snack</option>
-                  <option>Side</option>
-                </select>
+                <select id="recipe-category"></select>
               </label>
               <label>
                 Servings
@@ -290,50 +315,7 @@
 
             <fieldset class="macro-fieldset nutrition-only">
               <legend>Nutrition <span>per serving</span></legend>
-              <div class="macro-field-grid">
-                <label class="macro-field">
-                  <span class="macro-field-label">Calories</span>
-                  <span class="macro-input">
-                    <input id="ingredient-calories" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Protein</span>
-                  <span class="macro-input" data-unit="g">
-                    <input id="ingredient-protein" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Carbs</span>
-                  <span class="macro-input" data-unit="g">
-                    <input id="ingredient-carbs" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Fat</span>
-                  <span class="macro-input" data-unit="g">
-                    <input id="ingredient-fat" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Iron</span>
-                  <span class="macro-input" data-unit="mg">
-                    <input id="ingredient-iron" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Calcium</span>
-                  <span class="macro-input" data-unit="mg">
-                    <input id="ingredient-calcium" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-                <label class="macro-field">
-                  <span class="macro-field-label">Potassium</span>
-                  <span class="macro-input" data-unit="mg">
-                    <input id="ingredient-potassium" min="0" required step="any" type="number" inputmode="decimal" value="0" />
-                  </span>
-                </label>
-              </div>
+              <div class="macro-field-groups" id="ingredient-nutrients"></div>
             </fieldset>
 
             <div class="recipe-photo-field">
@@ -361,13 +343,86 @@
           </div>
         </section>
 
+        <section class="view" id="kitchen-stock-view" aria-labelledby="kitchen-stock-title">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">What's on hand</p>
+              <h2 id="kitchen-stock-title">Kitchen stock</h2>
+            </div>
+          </div>
+
+          <form class="recipe-form" id="kitchen-stock-form">
+            <div class="form-grid kitchen-stock-form-grid">
+              <div class="ingredient-picker">
+                <label>
+                  Item
+                  <input id="kitchen-stock-name" required autocomplete="off" placeholder="Search ingredients"
+                    role="combobox" aria-expanded="false" aria-autocomplete="list" />
+                </label>
+                <div class="ingredient-picker-results" id="kitchen-stock-results" role="listbox" hidden></div>
+              </div>
+              <label>
+                Amount
+                <div class="serving-size-inputs">
+                  <input id="kitchen-stock-quantity" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="12" value="1" />
+                  <select id="kitchen-stock-unit"></select>
+                </div>
+              </label>
+              <label>
+                Note
+                <input id="kitchen-stock-note" autocomplete="off" placeholder="Back of the fridge" />
+              </label>
+            </div>
+
+            <div class="kitchen-stock-form-actions">
+              <button class="primary-button" type="submit">Save to stock</button>
+              <button class="secondary-button" id="kitchen-stock-cancel" type="button" hidden>Cancel edit</button>
+            </div>
+          </form>
+
+          <div class="mapping-tools">
+            <div>
+              <p class="eyebrow">In the kitchen</p>
+              <h3>Stocked items</h3>
+            </div>
+            <div class="mapping-list" id="kitchen-stock-list"></div>
+          </div>
+        </section>
+
         <section class="view nutrition-only" id="macros-view" aria-labelledby="macros-title">
           <div class="view-header">
             <div>
               <p class="eyebrow">Nutrition totals</p>
-              <h2 id="macros-title">Weekly macro summary</h2>
+              <h2 id="macros-title">Weekly nutrition</h2>
             </div>
           </div>
+          <div class="macro-controls">
+            <p class="macro-controls-title">
+              Your targets <span>only you see these</span>
+              <button class="secondary-button" id="macro-edit-goals" type="button" aria-pressed="false">Edit goals</button>
+            </p>
+            <div class="macro-control-row">
+              <label class="macro-control" for="macro-calories">
+                <span>Your calories a day</span>
+                <input id="macro-calories" min="800" max="6000" step="50" type="number" inputmode="numeric" value="2000" />
+              </label>
+              <label class="macro-control" for="macro-profile">
+                <span>Reference intake</span>
+                <select id="macro-profile"></select>
+              </label>
+              <label class="macro-control" for="macro-people">
+                <span>People eating this plan</span>
+                <select id="macro-people"></select>
+              </label>
+            </div>
+          </div>
+          <p class="macro-note">
+            Your calorie target and reference intake are saved to your account, so everyone in the
+            household sees their own numbers. How many people eat the plan is shared, and decides how
+            much of the planned food counts as yours. Protein, carbs, fat, fiber and added sugar
+            scale with your calorie target; vitamins and minerals are fixed reference intakes.
+          </p>
+          <div class="macro-summary" id="macro-summary"></div>
           <div class="macro-dashboard" id="macro-dashboard"></div>
         </section>
       </main>
@@ -380,8 +435,13 @@
     </template>
 
     <dialog class="profile-dialog settings-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
-      <form id="profile-form" method="dialog">
+      <div class="dialog-header">
         <h2 id="profile-dialog-title">Settings</h2>
+        <button class="dialog-close" id="close-profile-dialog" type="button" aria-label="Close settings" title="Close">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <form id="profile-form" method="dialog">
 
         <section class="settings-section" aria-labelledby="profile-settings-title">
           <h3 id="profile-settings-title">Profile</h3>
@@ -489,7 +549,23 @@
         </div>
       </div>
     </dialog>
+
+    <dialog class="profile-dialog cook-dialog" id="cook-dialog" aria-labelledby="cook-dialog-title">
+      <div class="planner-dialog-content">
+        <div>
+          <p class="eyebrow">Kitchen stock</p>
+          <h2 id="cook-dialog-title">What did you make?</h2>
+          <p class="profile-hint">Pick a recipe and its ingredients come off your kitchen stock.</p>
+        </div>
+        <label class="cook-search-label" for="cook-search">Search recipes</label>
+        <input id="cook-search" autocomplete="off" placeholder="Search recipes" type="search" />
+        <div class="cook-recipe-list" id="cook-recipe-list" aria-live="polite"></div>
+        <div class="profile-dialog-actions">
+          <button class="primary-button" id="close-cook-dialog" type="button">Close</button>
+        </div>
+      </div>
+    </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260830-22"></script>
+    <script src="app.js?v=20260901-33"></script>
   </body>
 </html>

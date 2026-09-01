@@ -55,20 +55,60 @@ const starterRecipes = [
   }
 ];
 
+// Every nutrient is a daily range for one person: `min` is the floor worth
+// reaching, `max` the ceiling worth staying under. Either can be null when there
+// is no meaningful bound. You can override both per nutrient on the Macros tab.
+//
+// Energy-linked nutrients use `perMin`/`perMax` in grams per 1000 calories, so they
+// follow your own calorie target rather than a fixed 2000. The rest are fixed
+// intakes: `min`/`max` are the general FDA Daily Value and Tolerable Upper Intake
+// Level, with `female`/`male` carrying the RDAs that genuinely differ by sex.
+//
+// Sources: FDA Daily Values (21 CFR 101.9, 2016 label rule); IOM/NASEM Dietary
+// Reference Intakes for adults 19-50; AMDR ranges for the macronutrients; the 2019
+// potassium AI revision; the 2019 sodium CDRR. ULs are only included where they
+// apply to total intake from food - the magnesium, folate and niacin ULs cover
+// supplements only, so they are deliberately left out.
 const nutrients = [
-  { key: "calories", label: "Calories", short: "Cal", unit: "" },
-  { key: "protein", label: "Protein", short: "Protein", unit: "g" },
-  { key: "carbs", label: "Carbs", short: "Carbs", unit: "g" },
-  { key: "fat", label: "Fat", short: "Fat", unit: "g" },
-  { key: "iron", label: "Iron", short: "Iron", unit: "mg" },
-  { key: "calcium", label: "Calcium", short: "Calcium", unit: "mg" },
-  { key: "potassium", label: "Potassium", short: "Potassium", unit: "mg" }
+  { key: "calories", label: "Calories", short: "Cal", unit: "", group: "Energy and macros", fromCalories: true },
+  // AMDR 10-35% of energy.
+  { key: "protein", label: "Protein", short: "Protein", unit: "g", group: "Energy and macros", perMin: 25, perMax: 87.5 },
+  // AMDR 45-65% of energy.
+  { key: "carbs", label: "Carbs", short: "Carbs", unit: "g", group: "Energy and macros", perMin: 112.5, perMax: 162.5 },
+  // AMDR 20-35% of energy. The FDA DV of 78 g is the top of this band, not a goal.
+  { key: "fat", label: "Fat", short: "Fat", unit: "g", group: "Energy and macros", perMin: 22.2, perMax: 38.9 },
+  // DRI adequate intake is 14 g per 1000 kcal; no upper bound.
+  { key: "fiber", label: "Fiber", short: "Fiber", unit: "g", group: "Energy and macros", perMin: 14, perMax: null },
+  // Dietary Guidelines cap added sugar at 10% of energy.
+  { key: "sugar", label: "Added sugar", short: "Sugar", unit: "g", group: "Energy and macros", perMin: null, perMax: 25 },
+  { key: "sodium", label: "Sodium", short: "Sodium", unit: "mg", group: "Minerals", min: null, max: 2300 },
+  { key: "iron", label: "Iron", short: "Iron", unit: "mg", group: "Minerals", min: 18, female: 18, male: 8, max: 45 },
+  { key: "calcium", label: "Calcium", short: "Calcium", unit: "mg", group: "Minerals", min: 1300, female: 1000, male: 1000, max: 2500 },
+  { key: "potassium", label: "Potassium", short: "Potassium", unit: "mg", group: "Minerals", min: 4700, female: 2600, male: 3400, max: null },
+  { key: "magnesium", label: "Magnesium", short: "Magnesium", unit: "mg", group: "Minerals", min: 420, female: 320, male: 420, max: null },
+  { key: "zinc", label: "Zinc", short: "Zinc", unit: "mg", group: "Minerals", min: 11, female: 8, male: 11, max: 40 },
+  { key: "vitaminA", label: "Vitamin A", short: "Vit A", unit: "mcg", group: "Vitamins", min: 900, female: 700, male: 900, max: 3000 },
+  { key: "vitaminC", label: "Vitamin C", short: "Vit C", unit: "mg", group: "Vitamins", min: 90, female: 75, male: 90, max: 2000 },
+  { key: "vitaminD", label: "Vitamin D", short: "Vit D", unit: "mcg", group: "Vitamins", min: 20, female: 15, male: 15, max: 100 },
+  { key: "vitaminB12", label: "Vitamin B12", short: "B12", unit: "mcg", group: "Vitamins", min: 2.4, max: null },
+  { key: "folate", label: "Folate", short: "Folate", unit: "mcg", group: "Vitamins", min: 400, max: null }
 ];
+
+const nutritionProfiles = [
+  { value: "general", label: "General (FDA Daily Value)" },
+  { value: "female", label: "Adult female" },
+  { value: "male", label: "Adult male" }
+];
+
+const nutrientGroups = [...new Set(nutrients.map((nutrient) => nutrient.group))];
+
+// The four that already had a home on the ingredient tiles.
+const tileNutrientKeys = ["calories", "protein", "carbs", "fat"];
 
 const servingUnits = [
   { group: "Weight", units: ["mg", "g", "kg", "oz", "lb"] },
   { group: "Volume", units: ["ml", "cl", "dl", "l", "tsp", "tbsp", "fl oz", "cup", "pt", "qt", "gal"] },
-  { group: "Count", units: ["piece", "slice", "serving", "can", "package", "scoop", "clove"] }
+  { group: "Count", units: ["piece", "slice", "serving", "can", "package", "scoop", "clove", "egg"] }
 ];
 
 const measurementConversions = {
@@ -94,7 +134,8 @@ const measurementConversions = {
   can: { dimension: "count", factor: 1 },
   package: { dimension: "count", factor: 1 },
   scoop: { dimension: "count", factor: 1 },
-  clove: { dimension: "count", factor: 1 }
+  clove: { dimension: "count", factor: 1 },
+  egg: { dimension: "count", factor: 1 }
 };
 
 const measurementAliases = {
@@ -110,10 +151,13 @@ const measurementAliases = {
   "fluid ounce": "fl oz", "fluid ounces": "fl oz",
   cups: "cup", pints: "pt", quarts: "qt", gallons: "gal",
   pieces: "piece", slices: "slice", servings: "serving", cans: "can",
-  packages: "package", scoops: "scoop", cloves: "clove"
+  packages: "package", scoops: "scoop", cloves: "clove", eggs: "egg",
+  containers: "container"
 };
 
 const customServingUnit = "__other__";
+
+const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
 
 const authEls = {
   appShell: document.getElementById("app-shell"),
@@ -180,8 +224,14 @@ let ingredientDraftImage = "";
 let ingredientDraftBlob = null;
 let ingredientDraftPreview = "";
 let hideNutritionPreference = false;
+let personalNutrition = defaultPersonalNutrition();
 let activePlannerId = null;
 let openRecipeId = null;
+// Narrow screens show one day at a time; "week" shows the whole grid. Null means
+// "follow today", so moving between weeks lands on a sensible day on its own.
+let plannerMode = "day";
+let selectedDayIndex = null;
+let lastCentredDayIndex = null;
 
 function blankPlan() {
   return Object.fromEntries(days.map((day) => [day, Object.fromEntries(meals.map((meal) => [meal, ""]))]));
@@ -191,6 +241,8 @@ function createInitialState() {
   return {
     recipes: starterRecipes,
     ingredients: {},
+    kitchenStock: {},
+    nutrition: defaultNutritionSettings(),
     planners: {}
   };
 }
@@ -199,6 +251,8 @@ function createSignedOutState() {
   return {
     recipes: [],
     ingredients: {},
+    kitchenStock: {},
+    nutrition: defaultNutritionSettings(),
     planners: {}
   };
 }
@@ -210,7 +264,9 @@ function normalizeState(value) {
   const normalized = {
     recipes: Array.isArray(value?.recipes) ? value.recipes : starterRecipes,
     planners: normalizePlanners(value?.planners, legacyPlans, Boolean(value?.plan || Object.keys(legacyPlans).length)),
-    ingredients: normalizeIngredientCatalog(ingredientSource)
+    ingredients: normalizeIngredientCatalog(ingredientSource),
+    kitchenStock: normalizeKitchenStock(value?.kitchenStock),
+    nutrition: normalizeNutritionSettings(value?.nutrition, value?.macroPeople)
   };
 
   return normalized;
@@ -269,6 +325,99 @@ function normalizeIngredientCatalog(value) {
         }
       ];
     })
+  );
+}
+
+// Kitchen stock entries are keyed by their catalog ingredient key when they have
+// one, so restocking an ingredient updates its row instead of duplicating it.
+function kitchenStockId(key, name) {
+  return key || `custom|${ingredientKey(name)}`;
+}
+
+function clampNumber(raw, min, max, fallback) {
+  const number = Math.round(Number(raw));
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
+
+// Shared with the household: how many people the planned meals are cooked for.
+// Your share of the plan is one of them.
+function defaultNutritionSettings() {
+  return { people: 0 };
+}
+
+function normalizeNutritionSettings(value, legacyPeople) {
+  const source = value && typeof value === "object" ? value : {};
+  // 0 means "follow the planner's member count" rather than a pinned number.
+  return { people: clampNumber(source.people ?? legacyPeople, 0, 20, 0) };
+}
+
+// Personal to the signed-in account, stored on the user document so two people in
+// one household do not overwrite each other's targets.
+function defaultPersonalNutrition() {
+  return { calories: 2000, profile: "general", targets: {} };
+}
+
+function normalizePersonalNutrition(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    // Wide enough for a small child through a heavy training day.
+    calories: clampNumber(source.calories, 800, 6000, 2000),
+    profile: nutritionProfiles.some((entry) => entry.value === source.profile) ? source.profile : "general",
+    targets: normalizeNutrientTargets(source.targets)
+  };
+}
+
+// Per-nutrient daily overrides. A bound is stored only when set: `null` means
+// "no bound" on purpose, while a missing key falls back to the reference value.
+function normalizeNutrientTargets(value) {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    nutrients
+      .map((nutrient) => {
+        const entry = value[nutrient.key];
+        if (!entry || typeof entry !== "object") return null;
+        const bound = (raw) => {
+          if (raw === null) return null;
+          const number = Number(raw);
+          return Number.isFinite(number) && number >= 0 ? roundTo(number, 3) : undefined;
+        };
+        const min = bound(entry.min);
+        const max = bound(entry.max);
+        const cleaned = {};
+        if (min !== undefined) cleaned.min = min;
+        if (max !== undefined) cleaned.max = max;
+        // A floor above the ceiling can never be satisfied, so drop the ceiling.
+        if (cleaned.min != null && cleaned.max != null && cleaned.max < cleaned.min) delete cleaned.max;
+        return Object.keys(cleaned).length ? [nutrient.key, cleaned] : null;
+      })
+      .filter(Boolean)
+  );
+}
+
+function normalizeKitchenStock(value) {
+  if (!value || typeof value !== "object") return {};
+
+  return Object.fromEntries(
+    Object.values(value)
+      .filter((entry) => entry && typeof entry === "object" && String(entry.name || "").trim())
+      .map((entry) => {
+        const name = String(entry.name).trim();
+        const key = typeof entry.key === "string" ? entry.key : "";
+        const id = kitchenStockId(key, name);
+        return [
+          id,
+          {
+            id,
+            key,
+            name,
+            quantity: Math.max(0, roundTo(Number(entry.quantity) || 0, 4)),
+            unit: normalizeMeasurementUnit(entry.unit),
+            note: String(entry.note || "").trim(),
+            updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : ""
+          }
+        ];
+      })
   );
 }
 
@@ -332,6 +481,7 @@ async function handleAuthChange(user) {
   currentInviteCode = null;
   activePlannerId = null;
   hideNutritionPreference = false;
+  personalNutrition = defaultPersonalNutrition();
   applyNutritionVisibility();
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
@@ -423,7 +573,9 @@ async function applyStoredProfileLabel(user) {
   if (cloud?.auth.currentUser?.uid !== user.uid) return;
   if (profile.displayName) authEls.accountEmail.textContent = profile.displayName;
   hideNutritionPreference = Boolean(profile.hideNutrition);
+  personalNutrition = normalizePersonalNutrition(profile.nutrition);
   applyNutritionVisibility();
+  renderMacros();
 }
 
 function applyNutritionVisibility() {
@@ -525,6 +677,8 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
     await cloud.updateDoc(ref, {
       recipes: state.recipes,
       ingredients: state.ingredients,
+      kitchenStock: state.kitchenStock,
+      nutrition: state.nutrition,
       planners: state.planners
     });
     if (size > FIRESTORE_DOC_WARNING) {
@@ -661,70 +815,180 @@ function showRecipesView() {
   renderRecipes();
 }
 
+const mealIcons = { Breakfast: "🍳", Lunch: "🥪", Dinner: "🍽️" };
+
+// Index of the day the single-day mobile layout shows. Falls back to today when
+// the current week is on screen so opening the app lands on the useful day.
+function activeDayIndex() {
+  if (selectedDayIndex !== null) return selectedDayIndex;
+  if (!isCurrentWeek()) return 0;
+  const today = new Date().getDay();
+  return today === 0 ? 6 : today - 1;
+}
+
+function resetPlannerDay() {
+  selectedDayIndex = null;
+}
+
+function slotSummary(value) {
+  if (isTakeoutValue(value)) {
+    const name = takeoutName(value);
+    return { kind: "takeout", label: name || "Takeout", image: "", note: name ? "Takeout" : "" };
+  }
+  const recipe = value ? recipeById(value) : null;
+  if (!recipe) return { kind: "empty", label: "", image: "", note: "" };
+  return { kind: "recipe", label: recipe.name, image: recipeImage(recipe), note: recipe.category || "" };
+}
+
+function mealSlotMarkup(day, meal, value) {
+  const takeout = isTakeoutValue(value);
+  const summary = slotSummary(value);
+  const filled = summary.kind !== "empty";
+  const thumb = summary.image
+    ? `<span class="meal-slot-thumb has-photo" style="background-image:url('${summary.image}')"></span>`
+    : `<span class="meal-slot-thumb" aria-hidden="true">${summary.kind === "takeout" ? "🥡" : mealIcons[meal] || "🍽️"}</span>`;
+
+  return `
+    <div class="meal-slot" data-filled="${filled}" data-kind="${summary.kind}" data-takeout="${takeout}">
+      <div class="meal-slot-main">
+        ${thumb}
+        <span class="meal-slot-text" aria-hidden="true">
+          <span class="meal-slot-label">${meal}</span>
+          <span class="meal-slot-value">${filled ? escapeHtml(summary.label) : "Add a recipe"}</span>
+        </span>
+        <span class="meal-slot-chevron" aria-hidden="true">▾</span>
+        <select class="meal-slot-select" id="${day}-${meal}" aria-label="${day} ${meal}" data-day="${day}" data-meal="${meal}">
+          ${recipeOptions(value)}
+        </select>
+      </div>
+      <input
+        class="takeout-name"
+        type="text"
+        aria-label="${day} ${meal} restaurant"
+        placeholder="Where from?"
+        data-day="${day}"
+        data-meal="${meal}"
+        value="${escapeHtml(takeoutName(value))}"
+        ${takeout ? "" : "hidden"}
+      />
+    </div>`;
+}
+
 function renderPlanner() {
   const planner = ensureActivePlanner();
   const plan = getCurrentPlan();
   const grid = document.getElementById("week-grid");
+  const strip = document.getElementById("day-strip");
+  const todayKey = dateKey(new Date());
+  const dayIndex = activeDayIndex();
+
+  grid.dataset.plannerMode = plannerMode;
+  document.getElementById("planner-view").dataset.hasPlanner = String(Boolean(planner));
+
+  if (!planner) {
+    strip.innerHTML = "";
+    grid.innerHTML = `
+      <div class="planner-empty">
+        <span class="planner-empty-icon" aria-hidden="true">🗓️</span>
+        <strong>No planner selected</strong>
+        <p>Create a planner or join one from your household to start filling in meals.</p>
+        <button class="primary-button" data-open-planners type="button">Household planners</button>
+      </div>`;
+    grid.querySelector("[data-open-planners]")?.addEventListener("click", () => {
+      document.getElementById("manage-planners")?.click();
+    });
+    return;
+  }
+
+  const filledCounts = days.map((day) => meals.filter((meal) => plan[day]?.[meal]).length);
+
+  strip.innerHTML = days
+    .map((day, index) => {
+      const date = addDays(selectedWeekStart, index);
+      const dots = meals
+        .map((meal) => `<i class="day-pill-dot"${plan[day]?.[meal] ? ' data-on="true"' : ""}></i>`)
+        .join("");
+      return `
+        <button
+          class="day-pill"
+          type="button"
+          data-day-index="${index}"
+          data-today="${dateKey(date) === todayKey}"
+          aria-pressed="${index === dayIndex}"
+          aria-label="${day} ${formatDayDate(date)}, ${filledCounts[index]} of ${meals.length} meals planned"
+        >
+          <span class="day-pill-name">${day.slice(0, 3)}</span>
+          <span class="day-pill-date">${date.getDate()}</span>
+          <span class="day-pill-dots" aria-hidden="true">${dots}</span>
+        </button>`;
+    })
+    .join("");
+
   grid.innerHTML = days
     .map((day, index) => {
       const date = addDays(selectedWeekStart, index);
-      const slots = meals
-        .map((meal) => {
-          const value = plan[day]?.[meal] || "";
-          const takeout = isTakeoutValue(value);
-          return `
-            <div class="meal-slot">
-              <label for="${day}-${meal}">${meal}</label>
-              <div class="meal-slot-controls" data-takeout="${takeout}">
-                <select id="${day}-${meal}" data-day="${day}" data-meal="${meal}">
-                  ${recipeOptions(value)}
-                </select>
-                <input
-                  class="takeout-name"
-                  type="text"
-                  aria-label="${day} ${meal} restaurant"
-                  placeholder="Restaurant"
-                  data-day="${day}"
-                  data-meal="${meal}"
-                  value="${escapeHtml(takeoutName(value))}"
-                  ${takeout ? "" : "hidden"}
-                />
-              </div>
-            </div>`;
-        })
-        .join("");
+      const filled = filledCounts[index];
+      const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "")).join("");
 
       return `
-        <article class="day-column">
-          <h3>${day}</h3>
-          <span class="day-date">${formatDayDate(date)}</span>
-          ${slots}
+        <article
+          class="day-column"
+          data-day="${day}"
+          data-today="${dateKey(date) === todayKey}"
+          data-selected="${index === dayIndex}"
+        >
+          <header class="day-column-header">
+            <div class="day-column-title">
+              <h3>${day}</h3>
+              <span class="day-date">${formatDayDate(date)}</span>
+            </div>
+            <span class="day-badge" data-complete="${filled === meals.length}">${filled}/${meals.length}</span>
+          </header>
+          <div class="day-column-slots">${slots}</div>
         </article>`;
     })
     .join("");
 
+  strip.querySelectorAll(".day-pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      selectedDayIndex = Number(pill.dataset.dayIndex);
+      renderPlanner();
+    });
+  });
+
+  // Centre the strip on the open day, but only when it changes, so a background
+  // sync never yanks the strip out from under a scroll in progress.
+  if (dayIndex !== lastCentredDayIndex) {
+    lastCentredDayIndex = dayIndex;
+    const active = strip.children[dayIndex];
+    if (active) strip.scrollLeft = active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2;
+  }
+
   grid.querySelectorAll("select").forEach((select) => {
-    select.disabled = !planner;
     select.addEventListener("change", () => {
-      if (!planner || !requireCloudWrite()) {
+      if (!requireCloudWrite()) {
         renderAll();
         return;
       }
-      const nameInput = select.parentElement.querySelector(".takeout-name");
+      const slot = select.closest(".meal-slot");
+      const nameInput = slot?.querySelector(".takeout-name");
       const value = select.value === TAKEOUT_PREFIX ? takeoutValue(nameInput?.value || "") : select.value;
       getCurrentPlan()[select.dataset.day][select.dataset.meal] = value;
       saveState();
       renderAll();
       if (isTakeoutValue(value)) {
-        document.getElementById(`${select.dataset.day}-${select.dataset.meal}`)?.parentElement?.querySelector(".takeout-name")?.focus();
+        document
+          .getElementById(`${select.dataset.day}-${select.dataset.meal}`)
+          ?.closest(".meal-slot")
+          ?.querySelector(".takeout-name")
+          ?.focus();
       }
     });
   });
 
   grid.querySelectorAll(".takeout-name").forEach((input) => {
-    input.disabled = !planner;
     input.addEventListener("change", () => {
-      if (!planner || !requireCloudWrite()) {
+      if (!requireCloudWrite()) {
         renderAll();
         return;
       }
@@ -733,6 +997,91 @@ function renderPlanner() {
       renderAll();
     });
   });
+
+  // Re-rendering the grid replaces the controls, so re-apply the write lock here
+  // rather than only from renderAll - the day strip re-renders on its own too.
+  updateDataControls();
+}
+
+function setupPlannerLayout() {
+  document.querySelectorAll(".planner-mode").forEach((button) => {
+    button.addEventListener("click", () => {
+      plannerMode = button.dataset.plannerMode;
+      document.querySelectorAll(".planner-mode").forEach((mode) => {
+        const active = mode.dataset.plannerMode === plannerMode;
+        mode.classList.toggle("active", active);
+        mode.setAttribute("aria-pressed", String(active));
+      });
+      renderPlanner();
+    });
+  });
+
+  // Swiping between days is the fastest way to move around the single-day layout.
+  const grid = document.getElementById("week-grid");
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+
+  grid.addEventListener(
+    "touchstart",
+    (event) => {
+      tracking = plannerMode === "day" && event.touches.length === 1;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+    },
+    { passive: true }
+  );
+
+  grid.addEventListener(
+    "touchend",
+    (event) => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - startX;
+      if (Math.abs(deltaX) < 60 || Math.abs(touch.clientY - startY) > 50) return;
+      const next = activeDayIndex() + (deltaX < 0 ? 1 : -1);
+      if (next < 0 || next > days.length - 1) return;
+      selectedDayIndex = next;
+      renderPlanner();
+    },
+    { passive: true }
+  );
+}
+
+// Every dropdown in the app is built from one of the shared indexes — saved
+// recipes, their categories, the ingredient catalogue, or the unit list — through
+// these helpers, so no two lists can drift apart.
+function optionMarkup(value, label, selected = "", extra = "") {
+  return `<option value="${escapeHtml(value)}"${String(selected) === String(value) ? " selected" : ""}${extra}>${escapeHtml(label)}</option>`;
+}
+
+function unitOptionsMarkup({ selected = "", lead = "", compatibleWith = "", extraUnit = "", includeOther = false } = {}) {
+  const groups = servingUnits
+    .map((section) => {
+      const options = section.units
+        .map((unit) => {
+          const usable = !compatibleWith || measurementIsCompatible(unit, compatibleWith);
+          return optionMarkup(unit, unit, selected, usable ? "" : " disabled");
+        })
+        .join("");
+      return `<optgroup label="${escapeHtml(section.group)}">${options}</optgroup>`;
+    })
+    .join("");
+
+  // An ingredient saved with a unit of its own ("sprig") still needs to be pickable.
+  const custom = extraUnit && !knownServingUnit(normalizeMeasurementUnit(extraUnit))
+    ? `<optgroup label="Ingredient unit">${optionMarkup(extraUnit, extraUnit, selected)}</optgroup>`
+    : "";
+  const other = includeOther ? optionMarkup(customServingUnit, "Other...", selected) : "";
+  return lead + groups + custom + other;
+}
+
+// The six built-in categories plus any others the saved recipes actually use, so
+// an imported "Brunch" survives instead of being coerced to Dinner.
+function recipeCategories() {
+  const used = state.recipes.map((recipe) => recipe.category).filter(Boolean);
+  return [...new Set([...defaultRecipeCategories, ...used])].sort((a, b) => a.localeCompare(b));
 }
 
 function recipeOptions(selectedId = "") {
@@ -747,14 +1096,21 @@ function recipeOptions(selectedId = "") {
 }
 
 function renderCategories() {
+  const categories = recipeCategories();
+
+  // The filter only lists categories that would return something.
   const filter = document.getElementById("category-filter");
   const current = filter.value || "all";
-  const categories = [...new Set(state.recipes.map((recipe) => recipe.category))].sort();
-  filter.innerHTML = [
-    '<option value="all">All recipes</option>',
-    ...categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
-  ].join("");
-  filter.value = categories.includes(current) ? current : "all";
+  const inUse = categories.filter((category) => state.recipes.some((recipe) => recipe.category === category));
+  filter.innerHTML = optionMarkup("all", "All recipes", current) + inUse.map((category) => optionMarkup(category, category, current)).join("");
+  filter.value = inUse.includes(current) ? current : "all";
+
+  // The editor offers every assignable category, and keeps whatever is selected.
+  const editor = document.getElementById("recipe-category");
+  const chosen = editor.value || "Dinner";
+  const assignable = categories.includes(chosen) ? categories : [...categories, chosen].sort((a, b) => a.localeCompare(b));
+  editor.innerHTML = assignable.map((category) => optionMarkup(category, category, chosen)).join("");
+  editor.value = chosen;
 }
 
 function renderRecipeEditor() {
@@ -860,6 +1216,8 @@ function renderRecipes() {
     detail.querySelector("[data-edit-open-recipe]").addEventListener("click", () => {
       showRecipeEditor(selectedRecipe);
     });
+    detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(selectedRecipe));
+    detail.querySelector("[data-undo-cook]")?.addEventListener("click", undoStockDeduction);
     setupIngredientMentions(detail);
     return;
   }
@@ -914,16 +1272,29 @@ function recipeCategorySection(group) {
 
 function recipeCatalogueCard(recipe) {
   const steps = recipeSteps(recipe).length;
+  const coverage = recipeStockCoverage(recipe);
   return `
-    <button class="recipe-catalogue-card" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
+    <button class="recipe-catalogue-card${coverage.ready ? " is-ready" : ""}" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
       ${recipeCatalogueVisual(recipe)}
       <span class="recipe-catalogue-body">
-        <span class="category-pill">${escapeHtml(recipe.category)}</span>
+        <span class="recipe-catalogue-tags">
+          <span class="category-pill">${escapeHtml(recipe.category)}</span>
+          ${stockCoverageBadge(coverage)}
+        </span>
         <strong>${escapeHtml(recipe.name)}</strong>
         <span>${recipe.ingredients?.length || 0} ingredients · ${steps} steps · Serves ${formatQuantity(Number(recipe.servings || 1))}</span>
       </span>
       <span class="recipe-catalogue-open">View recipe →</span>
     </button>`;
+}
+
+// Silent until there is stock to compare against, so an empty kitchen does not
+// stamp "0 of 5" on every recipe you own.
+function stockCoverageBadge(coverage) {
+  if (!coverage.total || !hasKitchenStock()) return "";
+  if (coverage.ready) return '<span class="stock-pill is-ready">✓ Can make now</span>';
+  if (!coverage.have) return "";
+  return `<span class="stock-pill">${coverage.have} of ${coverage.total} in stock</span>`;
 }
 
 function recipeCatalogueVisual(recipe) {
@@ -941,6 +1312,8 @@ function recipeDetailMarkup(recipe) {
   return `
     <div class="recipe-detail-actions">
       <button class="text-button" data-back-to-recipes type="button">← All recipes</button>
+      <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
+      ${lastStockDeduction?.recipeId === recipe.id ? '<button class="text-button" data-undo-cook type="button">Undo</button>' : ""}
       <button class="secondary-button" data-edit-open-recipe type="button">Edit recipe</button>
     </div>
     ${recipeImage(recipe) ? `<img class="recipe-detail-image" src="${escapeHtml(recipeImage(recipe))}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
@@ -952,7 +1325,7 @@ function recipeDetailMarkup(recipe) {
     <div class="recipe-detail-layout">
       <aside class="recipe-detail-ingredients">
         <h3>Ingredients</h3>
-        <ul class="ingredients">${recipe.ingredients.map((ingredient) => `<li>${escapeHtml(recipeIngredientText(ingredient))}</li>`).join("")}</ul>
+        <ul class="ingredients">${recipe.ingredients.map((ingredient) => `<li>${recipeIngredientMarkup(ingredient)}</li>`).join("")}</ul>
       </aside>
       <div class="recipe-detail-method">
         <section class="recipe-card-section recipe-instruction-block">
@@ -1074,26 +1447,66 @@ function recipeSteps(recipe) {
   return [];
 }
 
-function highlightIngredientMentions(step, recipe) {
+// Steps may carry explicit ingredient labels written as {{Ingredient Name}} or
+// {{Ingredient Name|the words as they read in the step}}. Anything untagged still
+// falls back to matching ingredient names automatically.
+const stepTagPattern = /\{\{([^{}|]+?)(?:\|([^{}]*?))?\}\}/g;
+
+function stepTagMarkup(name, text) {
+  const label = String(text ?? "").trim() || name;
+  return label.toLowerCase() === name.toLowerCase() ? `{{${name}}}` : `{{${name}|${label}}}`;
+}
+
+// The step as a reader sees it, with every label reduced to its visible words.
+function stripStepTags(step) {
+  return String(step ?? "").replace(stepTagPattern, (match, name, text) => (text ?? name).trim() || name.trim());
+}
+
+function recipeIngredientAmounts(recipe) {
   const amounts = new Map();
   recipe.ingredients?.forEach((item) => {
     const detail = recipeIngredientMention(item);
     if (detail?.name) amounts.set(detail.name.toLowerCase(), detail.amount);
   });
+  return amounts;
+}
 
+function mentionMarkup(text, amount) {
+  if (!amount) return escapeHtml(text);
+  return `<span class="ingredient-mention" role="button" tabindex="0" aria-label="${escapeHtml(text)}: ${escapeHtml(amount)}">${escapeHtml(
+    text
+  )}<span class="ingredient-amount" role="tooltip">${escapeHtml(amount)}</span></span>`;
+}
+
+function highlightIngredientMentions(step, recipe) {
+  const amounts = recipeIngredientAmounts(recipe);
   const names = [...amounts.keys()].sort((a, b) => b.length - a.length);
-  if (!names.length) return escapeHtml(step);
+  const autoPattern = names.length ? new RegExp(`\\b(${names.map(escapeRegExp).join("|")})\\b`, "gi") : null;
 
-  const pattern = new RegExp(`\\b(${names.map(escapeRegExp).join("|")})\\b`, "gi");
+  // Untagged stretches keep the old automatic name matching.
+  const autoHighlight = (text) => {
+    if (!autoPattern) return escapeHtml(text);
+    let cursor = 0;
+    let html = "";
+    for (const match of text.matchAll(autoPattern)) {
+      html += escapeHtml(text.slice(cursor, match.index));
+      html += mentionMarkup(match[0], amounts.get(match[0].toLowerCase()));
+      cursor = match.index + match[0].length;
+    }
+    return html + escapeHtml(text.slice(cursor));
+  };
+
   let cursor = 0;
   let html = "";
-  for (const match of step.matchAll(pattern)) {
-    html += escapeHtml(step.slice(cursor, match.index));
-    const amount = amounts.get(match[0].toLowerCase());
-    html += `<span class="ingredient-mention" role="button" tabindex="0" aria-label="${escapeHtml(match[0])}: ${escapeHtml(amount)}">${escapeHtml(match[0])}<span class="ingredient-amount" role="tooltip">${escapeHtml(amount)}</span></span>`;
+  for (const match of String(step ?? "").matchAll(stepTagPattern)) {
+    html += autoHighlight(step.slice(cursor, match.index));
+    const name = match[1].trim();
+    const label = (match[2] ?? name).trim() || name;
+    // A label pointing at an ingredient the recipe no longer has degrades to plain words.
+    html += mentionMarkup(label, amounts.get(name.toLowerCase()) || "");
     cursor = match.index + match[0].length;
   }
-  return html + escapeHtml(step.slice(cursor));
+  return html + autoHighlight(step.slice(cursor));
 }
 
 function recipeIngredientMention(item) {
@@ -1158,6 +1571,45 @@ function normalizeMeasurementUnit(unit) {
   return measurementAliases[normalized] || normalized;
 }
 
+// Word units read naturally in the plural ("2 eggs"); abbreviations never do ("2 g").
+const pluralizableUnits = new Set(["piece", "slice", "serving", "can", "package", "scoop", "clove", "egg", "cup", "container"]);
+
+function pluralizeUnit(unit, quantity) {
+  const normalized = normalizeMeasurementUnit(unit);
+  if (!normalized || !pluralizableUnits.has(normalized)) return normalized;
+  return roundTo(Number(quantity || 0), 2) === 1 ? normalized : `${normalized}s`;
+}
+
+// "2 eggs Egg" reads badly: when the unit already names the ingredient, the name is redundant.
+function unitNamesIngredient(unit, name) {
+  const normalizedUnit = normalizeMeasurementUnit(unit);
+  return Boolean(normalizedUnit) && normalizedUnit === normalizeMeasurementUnit(name);
+}
+
+// Fractions read well for cups and spoons; metric amounts read better as decimals,
+// so 0.8 kg stays "0.8 kg" instead of turning into "⅘ kg".
+const decimalUnits = new Set(["mg", "g", "kg", "ml", "cl", "dl", "l"]);
+
+function formatUnitQuantity(quantity, unit) {
+  const value = roundTo(Number(quantity || 0), 2);
+  return decimalUnits.has(normalizeMeasurementUnit(unit)) ? String(value) : formatQuantity(value);
+}
+
+// Shared "<amount> <unit>" builder that also reports the singular unit it settled on,
+// so callers can drop an ingredient name the unit already covers.
+function amountParts(quantity, unit) {
+  return {
+    text: `${formatUnitQuantity(quantity, unit)} ${pluralizeUnit(unit, quantity)}`.replace(/\s+/g, " ").trim(),
+    unit: normalizeMeasurementUnit(unit)
+  };
+}
+
+// "<amount> <unit> <name>", with the name dropped when the unit already names it.
+function amountWithName(quantity, unit, name) {
+  const amount = amountParts(quantity, unit);
+  return `${amount.text} ${unitNamesIngredient(amount.unit, name) ? "" : name}`.replace(/\s+/g, " ").trim();
+}
+
 function convertMeasurement(amount, fromUnit, toUnit) {
   const from = normalizeMeasurementUnit(fromUnit);
   const to = normalizeMeasurementUnit(toUnit);
@@ -1195,7 +1647,7 @@ function recipeItemContainerCount(item, ingredient) {
 }
 
 function formatContainers(containers) {
-  return `${formatQuantity(roundTo(containers, 2))} container${roundTo(containers, 2) === 1 ? "" : "s"}`;
+  return amountParts(roundTo(containers, 2), "container").text;
 }
 
 function roundTo(value, places) {
@@ -1225,30 +1677,64 @@ function recipeContainers(recipe) {
 }
 
 function recipeIngredientText(item) {
-  if (typeof item === "string") return formatAmountsInText(item);
-  const ingredient = state.ingredients[item.key] || item;
-  const name = ingredient.name || "Ingredient";
-  return `${recipeIngredientAmount(item, ingredient)} ${name}`.replace(/\s+/g, " ").trim();
+  const parts = recipeIngredientParts(item);
+  return `${parts.amount} ${parts.name}`.replace(/\s+/g, " ").trim();
 }
 
-// Just the amount: "1 tbsp", "2 egg", "1 container". Serving counts and container
-// maths stay in the recipe totals instead of padding out every line.
+// The amount is rendered in its own colour, so it has to come back separated
+// from the name rather than pre-joined into one string.
+function recipeIngredientParts(item) {
+  if (typeof item === "string") return splitLeadingAmount(formatAmountsInText(item));
+  const ingredient = state.ingredients[item.key] || item;
+  const name = ingredient.name || "Ingredient";
+  const amount = recipeIngredientAmountParts(item, ingredient);
+  // An "egg" unit already names the ingredient, so "2 eggs Egg" becomes "2 eggs".
+  return { amount: amount.text, name: unitNamesIngredient(amount.unit, name) ? "" : name };
+}
+
+// Pulls "2 tbsp" off the front of "2 tbsp Olive oil". The trailing word only
+// joins the amount when it is a unit, so "3 Chicken breasts" keeps its name whole.
+function splitLeadingAmount(text) {
+  const match = String(text ?? "").trim().match(/^((?:\d+\s+)?[\d./¼-¾⅐-⅞]+)\s*(.*)$/);
+  if (!match) return { amount: "", name: String(text ?? "").trim() };
+
+  const [, quantity, rest] = match;
+  const unitMatch = rest.match(/^([a-zA-Z]+)\s+(\S.*)$/);
+  const unit = unitMatch ? normalizeMeasurementUnit(unitMatch[1]) : "";
+  if (unitMatch && (knownServingUnit(unit) || unit === "container")) {
+    return { amount: `${quantity} ${unitMatch[1]}`, name: unitMatch[2] };
+  }
+  return { amount: quantity, name: rest };
+}
+
+function recipeIngredientMarkup(item) {
+  const { amount, name } = recipeIngredientParts(item);
+  const amountHtml = amount ? `<span class="ingredient-measure">${escapeHtml(amount)}</span>` : "";
+  return `${amountHtml} ${escapeHtml(name)}`.trim();
+}
+
 function recipeIngredientAmount(item, ingredient) {
+  return recipeIngredientAmountParts(item, ingredient).text;
+}
+
+// Just the amount: "1 tbsp", "2 eggs", "1 container". Serving counts and container
+// maths stay in the recipe totals instead of padding out every line.
+function recipeIngredientAmountParts(item, ingredient) {
   const quantity = Number(item.quantity || 0);
   if (item.measure === "container") {
-    return `${formatQuantity(quantity)} container${quantity === 1 ? "" : "s"}`;
+    return amountParts(quantity, "container");
   }
   if (item.measure && item.measure !== "serving") {
-    return `${formatQuantity(quantity)} ${item.measure}`;
+    return amountParts(quantity, item.measure);
   }
 
   // "Serving" rows count the ingredient's own serving size, so fold the two
-  // numbers together: 2 x "1 egg" reads as "2 egg", not "2 x 1 egg".
+  // numbers together: 2 x "1 egg" reads as "2 eggs", not "2 x 1 egg".
   const serving = parseServing(ingredient?.serving);
   if (serving.amount > 0) {
-    return `${formatQuantity(quantity * serving.amount)} ${serving.unit === "serving" ? "" : serving.unit}`.trim();
+    return amountParts(quantity * serving.amount, serving.unit === "serving" ? "" : serving.unit);
   }
-  return `${formatQuantity(quantity)} x ${ingredient?.serving || "serving"}`;
+  return { text: `${formatQuantity(quantity)} x ${ingredient?.serving || "serving"}`, unit: "" };
 }
 
 function formatMacro(value) {
@@ -1299,12 +1785,16 @@ function renderGroceries() {
           const visual = image
             ? `<span class="grocery-card-visual has-image"><span class="grocery-card-initial">${initial}</span><img class="grocery-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(item.name)}" /></span>`
             : `<span class="grocery-card-visual"><span class="grocery-card-initial">${initial}</span></span>`;
+          // Shown, never subtracted: stock can be out of date, and a wrong
+          // grocery amount is worse than a redundant one.
+          const stocked = stockedFor(item.key, item.name);
           return `
-            <li class="grocery-card" data-grocery-text="${escapeHtml(text)}">
+            <li class="grocery-card${stocked ? " is-stocked" : ""}" data-grocery-text="${escapeHtml(text)}">
               ${visual}
               <div class="grocery-card-body">
                 <strong class="grocery-card-name">${escapeHtml(item.name)}</strong>
                 <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
+                ${stocked ? `<span class="grocery-card-stock">In kitchen: ${escapeHtml(kitchenStockAmountText(stocked))}</span>` : ""}
                 ${containers
                   ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers))}</span>`
                   : ""}
@@ -1320,10 +1810,15 @@ function renderGroceries() {
   setupCloudImageDiagnostics(groceryList);
 }
 
-// "2 cup" for measured items, "x3" when the same item shows up in several recipes.
+// "2 cups" for measured items, "x3" when the same item shows up in several recipes.
 function groceryAmountText(item) {
-  if (item.quantity) return `${formatQuantity(item.quantity)} ${item.unit}`.replace(/\s+/g, " ").trim();
+  if (item.quantity) return groceryAmountParts(item).text;
   return item.count > 1 ? `x${item.count}` : "As needed";
+}
+
+function groceryAmountParts(item) {
+  const quantity = Number(item.quantity || 0) * (Number(item.servingAmount) || 1);
+  return amountParts(quantity, item.servingUnit);
 }
 
 // Shortened link text so the destination is visible on the card.
@@ -1344,10 +1839,15 @@ function parseRecipeIngredient(item) {
   const ingredient = state.ingredients[item.key] || item;
   if (!ingredient?.name) return null;
 
+  // `quantity` counts servings (container maths depends on that), so the serving size
+  // rides along separately for display: 2 servings of "1 egg" shows as "2 eggs".
+  const serving = parseServing(ingredient.serving);
   return {
     key: ingredient.key || ingredientKey(ingredient.name),
     name: ingredient.name,
     unit: ingredient.serving || "serving",
+    servingAmount: serving.amount > 0 ? serving.amount : 1,
+    servingUnit: serving.unit === "serving" ? "" : serving.unit,
     quantity: recipeItemServingCount(item, ingredient),
     servingsPerContainer: servingsPerContainer(ingredient),
     count: 1
@@ -1367,6 +1867,8 @@ function parseIngredient(ingredient) {
         key: name.trim().toLowerCase(),
         name: name.trim(),
         unit: "",
+        servingAmount: 1,
+        servingUnit: "",
         quantity: parseQuantity(quantityText),
         count: 1
       };
@@ -1376,6 +1878,8 @@ function parseIngredient(ingredient) {
       key: clean.toLowerCase(),
       name: clean,
       unit: "",
+      servingAmount: 1,
+      servingUnit: "",
       quantity: 0,
       count: 1
     };
@@ -1386,6 +1890,8 @@ function parseIngredient(ingredient) {
     key: `${unit.toLowerCase()}|${name.trim().toLowerCase()}`,
     name: name.trim(),
     unit,
+    servingAmount: 1,
+    servingUnit: unit,
     quantity: parseQuantity(quantityText),
     count: 1
   };
@@ -1493,21 +1999,283 @@ function isValidQuantityInput(value) {
 
 function formatGroceryItem(item) {
   if (item.quantity) {
-    return `${formatQuantity(item.quantity)} ${item.unit} ${item.name}`.replace(/\s+/g, " ").trim();
+    return amountWithName(Number(item.quantity || 0) * (Number(item.servingAmount) || 1), item.servingUnit, item.name);
   }
 
   return `${item.name}${item.count > 1 ? ` x${item.count}` : ""}`;
 }
 
+// How many people the planned meals are cooked for. Defaults to the active
+// planner's members, since that is who the plan is actually for, and can be
+// overridden when the plan also feeds people without an account.
+function plannerEaters() {
+  const planner = activePlanner();
+  if (!planner) return 1;
+  if (planner.allHouseholdMembers) return Math.max(1, householdMembers.length);
+  return Math.max(1, planner.memberUids?.length || 1);
+}
+
+function nutritionSettings() {
+  const shared = normalizeNutritionSettings(state.nutrition);
+  return {
+    ...personalNutrition,
+    people: shared.people || plannerEaters(),
+    peopleOverride: shared.people
+  };
+}
+
+async function savePersonalNutrition() {
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+  try {
+    const ref = cloud.doc(cloud.db, "users", user.uid);
+    await cloud.setDoc(ref, { profile: { nutrition: personalNutrition } }, { merge: true });
+  } catch (error) {
+    setAuthMessage("Could not save your nutrition targets: " + error.message);
+  }
+}
+
+// The reference daily range for one person, before any personal override. Energy-
+// linked nutrients follow your calorie target; fixed intakes follow your profile.
+function nutrientReferenceRange(nutrient, settings = nutritionSettings()) {
+  if (nutrient.fromCalories) {
+    // A calorie goal is a point, so allow the usual +/-10% either side of it.
+    return { min: roundTo(settings.calories * 0.9, 2), max: roundTo(settings.calories * 1.1, 2) };
+  }
+  if (nutrient.perMin != null || nutrient.perMax != null) {
+    const scale = settings.calories / 1000;
+    return {
+      min: nutrient.perMin == null ? null : roundTo(nutrient.perMin * scale, 2),
+      max: nutrient.perMax == null ? null : roundTo(nutrient.perMax * scale, 2)
+    };
+  }
+  const min = settings.profile === "general" ? nutrient.min : nutrient[settings.profile] ?? nutrient.min;
+  return { min: min ?? null, max: nutrient.max ?? null };
+}
+
+// The range actually in force, with your own overrides applied.
+function nutrientDailyRange(nutrient, settings = nutritionSettings()) {
+  const reference = nutrientReferenceRange(nutrient, settings);
+  const override = settings.targets?.[nutrient.key];
+  if (!override) return reference;
+  return {
+    min: override.min === undefined ? reference.min : override.min,
+    max: override.max === undefined ? reference.max : override.max
+  };
+}
+
+function nutrientWeeklyRange(nutrient, settings = nutritionSettings()) {
+  const daily = nutrientDailyRange(nutrient, settings);
+  return { min: daily.min == null ? null : daily.min * 7, max: daily.max == null ? null : daily.max * 7 };
+}
+
+// Kept for the places that just want one number to show: the floor if there is
+// one, otherwise the ceiling.
+function nutrientWeeklyTarget(nutrient, settings = nutritionSettings()) {
+  const range = nutrientWeeklyRange(nutrient, settings);
+  return range.min ?? range.max ?? 0;
+}
+
+function nutrientDailyTarget(nutrient, settings = nutritionSettings()) {
+  const range = nutrientDailyRange(nutrient, settings);
+  return range.min ?? range.max ?? 0;
+}
+
+// Your share of the week's planned food against your own weekly range. The bar
+// fills toward the floor, or toward the ceiling when the goal is only a cap.
+function nutrientProgress(nutrient, weeklyTotal, settings = nutritionSettings()) {
+  const range = nutrientWeeklyRange(nutrient, settings);
+  const total = Number(weeklyTotal || 0);
+  const share = total / settings.people;
+  const basis = range.min ?? range.max ?? 0;
+  const percent = basis > 0 ? (share / basis) * 100 : 0;
+
+  let status = "none";
+  if (share > 0) {
+    if (range.max != null && share > range.max) status = "over";
+    else if (range.min == null) status = "good";
+    else if (share >= range.min) status = "good";
+    else status = share >= range.min * 0.6 ? "low" : "short";
+  }
+
+  return {
+    total,
+    share,
+    range,
+    dailyRange: nutrientDailyRange(nutrient, settings),
+    target: basis,
+    perDay: share / 7,
+    dailyTarget: basis / 7,
+    percent,
+    status,
+    bar: Math.max(0, Math.min(100, percent))
+  };
+}
+
+const macroStatusLabels = {
+  good: "On track",
+  low: "A little low",
+  short: "Well under",
+  over: "Over",
+  none: "No data"
+};
+
 function renderMacros() {
   const planned = plannedRecipes();
   const totals = planned.reduce((sum, recipe) => addNutrients(sum, recipeMacros(recipe)), emptyNutrients());
   const containers = planned.reduce((sum, recipe) => sum + recipeContainers(recipe), 0);
+  const settings = nutritionSettings();
 
-  document.getElementById("macro-dashboard").innerHTML = [
-    ...nutrients.map((nutrient) => macroCard(nutrient.label, nutrientText(nutrient, totals[nutrient.key]), "nutrition-only")),
-    macroCard("Containers", formatQuantity(roundTo(containers, 2)))
-  ].join("");
+  syncNutritionControls(settings);
+
+  const tracked = nutrients.map((nutrient) => ({ nutrient, progress: nutrientProgress(nutrient, totals[nutrient.key], settings) }));
+  const withData = tracked.filter((item) => item.progress.percent > 0);
+  const onTrack = withData.filter((item) => item.progress.status === "good").length;
+  // The calorie goal itself, not the bottom of its +/-10% band.
+  const weeklyCalories = settings.calories * 7;
+  const share = settings.people > 1
+    ? `Your share: 1 of ${settings.people} eating this plan`
+    : "Your share: everything planned";
+
+  document.getElementById("macro-summary").innerHTML = `
+    <div class="macro-summary-headline">
+      <strong>${onTrack} of ${withData.length || nutrients.length}</strong>
+      <span>of your weekly targets met</span>
+    </div>
+    <div class="macro-summary-meta">
+      <span>${share}</span>
+      <span>Your week: ${formatMacro(weeklyCalories)} cal (${settings.calories}/day)</span>
+      <span>${planned.length} meal${planned.length === 1 ? "" : "s"} planned</span>
+      <span>${formatQuantity(roundTo(containers, 2))} containers</span>
+    </div>
+    ${withData.length ? "" : '<p class="empty-state">Plan meals with saved ingredients to see how the week measures up.</p>'}`;
+
+  const dashboard = document.getElementById("macro-dashboard");
+  dashboard.innerHTML = nutrientGroups
+    .map((group) => {
+      const rows = tracked
+        .filter((item) => item.nutrient.group === group)
+        .map(({ nutrient, progress }) => macroProgressRow(nutrient, progress, editingGoals))
+        .join("");
+      return `
+        <section class="macro-group">
+          <h3>${escapeHtml(group)}</h3>
+          <div class="macro-group-rows">${rows}</div>
+        </section>`;
+    })
+    .join("");
+
+  bindGoalEditors(dashboard);
+}
+
+let editingGoals = false;
+
+function bindGoalEditors(dashboard) {
+  const toggle = document.getElementById("macro-edit-goals");
+  if (toggle) {
+    toggle.textContent = editingGoals ? "Done editing goals" : "Edit goals";
+    toggle.setAttribute("aria-pressed", String(editingGoals));
+  }
+  if (!editingGoals) return;
+
+  dashboard.querySelectorAll("[data-goal-key]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!requireCloudWrite()) return;
+      const { goalKey, goalBound } = input.dataset;
+      const text = input.value.trim();
+      const targets = { ...personalNutrition.targets };
+      const entry = { ...(targets[goalKey] || {}) };
+
+      // Clearing the box drops the override and lets the reference value return.
+      if (!text) delete entry[goalBound];
+      else entry[goalBound] = Number(text);
+
+      if (Object.keys(entry).length) targets[goalKey] = entry;
+      else delete targets[goalKey];
+
+      personalNutrition = normalizePersonalNutrition({ ...personalNutrition, targets });
+      renderMacros();
+      void savePersonalNutrition();
+    });
+  });
+
+  dashboard.querySelectorAll("[data-goal-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!requireCloudWrite()) return;
+      const targets = { ...personalNutrition.targets };
+      delete targets[button.dataset.goalReset];
+      personalNutrition = normalizePersonalNutrition({ ...personalNutrition, targets });
+      renderMacros();
+      void savePersonalNutrition();
+    });
+  });
+}
+
+// Never overwrite a field the user is mid-edit in.
+function syncNutritionControls(settings) {
+  const people = document.getElementById("macro-people");
+  if (people && document.activeElement !== people) {
+    const auto = plannerEaters();
+    people.innerHTML = [
+      optionMarkup("0", `Follow this planner (${auto})`),
+      ...Array.from({ length: 20 }, (_, index) => optionMarkup(String(index + 1), `${index + 1} ${index ? "people" : "person"}`))
+    ].join("");
+    people.value = String(settings.peopleOverride || 0);
+  }
+
+  const fields = { "macro-calories": settings.calories, "macro-profile": settings.profile };
+  Object.entries(fields).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element && document.activeElement !== element) element.value = value;
+  });
+}
+
+// "350-612g", "at least 350g", "up to 16100mg" - whichever bounds are set.
+function rangeText(nutrient, range) {
+  const min = range.min == null ? null : nutrientText(nutrient, range.min);
+  const max = range.max == null ? null : nutrientText(nutrient, range.max);
+  if (min && max) return `${formatMacro(range.min)}-${max}`;
+  if (min) return `at least ${min}`;
+  if (max) return `up to ${max}`;
+  return "no goal set";
+}
+
+function macroProgressRow(nutrient, progress, editing) {
+  const customised = Boolean(nutritionSettings().targets?.[nutrient.key]);
+  const boundInput = (bound) => {
+    const value = progress.dailyRange[bound];
+    return `<label class="macro-bound">
+      <span>${bound === "min" ? "Min" : "Max"}/day</span>
+      <input type="number" min="0" step="any" inputmode="decimal" data-goal-key="${escapeHtml(nutrient.key)}" data-goal-bound="${bound}"
+        value="${value == null ? "" : formatMacro(value)}" placeholder="none" />
+    </label>`;
+  };
+
+  return `
+    <div class="macro-progress" data-status="${progress.status}">
+      <div class="macro-progress-head">
+        <span class="macro-progress-name">${escapeHtml(nutrient.label)}${customised ? '<em class="macro-custom-flag" title="Custom goal">custom</em>' : ""}</span>
+        <span class="macro-progress-value">
+          <strong>${nutrientText(nutrient, progress.share)}</strong>
+          <em>/ ${escapeHtml(rangeText(nutrient, progress.range))}</em>
+        </span>
+      </div>
+      <div class="macro-progress-track" role="img" aria-label="${Math.round(progress.percent)}% of the weekly goal">
+        <span class="macro-progress-fill" style="width: ${progress.bar}%"></span>
+      </div>
+      <div class="macro-progress-foot">
+        <span class="macro-progress-percent">${Math.round(progress.percent)}%</span>
+        <span class="macro-progress-daily">${nutrientText(nutrient, progress.perDay)} a day, goal ${escapeHtml(rangeText(nutrient, progress.dailyRange))}</span>
+        <span class="macro-progress-status">${macroStatusLabels[progress.status]}</span>
+      </div>
+      ${editing
+        ? `<div class="macro-bounds">
+            ${boundInput("min")}
+            ${boundInput("max")}
+            <button class="text-button" data-goal-reset="${escapeHtml(nutrient.key)}" type="button" ${customised ? "" : "disabled"}>Reset</button>
+          </div>`
+        : ""}
+    </div>`;
 }
 
 function renderIngredients() {
@@ -1544,7 +2312,282 @@ function renderIngredients() {
   });
 }
 
-const tileNutrients = ["calories", "protein", "carbs", "fat"];
+// Held only for the session so the last "I made this" can be taken back; a bulk
+// change across several entries is tedious to reverse by hand.
+let lastStockDeduction = null;
+
+function cookRecipe(recipe) {
+  if (!requireCloudWrite()) return;
+
+  const result = deductRecipeFromStock(recipe);
+  lastStockDeduction = result.used.length ? { recipeId: recipe.id, snapshot: result.snapshot } : null;
+  if (result.used.length) saveState();
+  renderAll();
+  setAuthMessage(describeStockDeduction(result));
+}
+
+function undoStockDeduction() {
+  if (!lastStockDeduction || !requireCloudWrite()) return;
+
+  Object.values(lastStockDeduction.snapshot).forEach((entry) => {
+    state.kitchenStock[entry.id] = { ...entry };
+  });
+  lastStockDeduction = null;
+  saveState();
+  renderAll();
+  setAuthMessage("Kitchen stock restored.");
+}
+
+// The mobile "+" in the tab bar: pick what you cooked and it comes off the stock.
+function setupCookDialog() {
+  const dialog = document.getElementById("cook-dialog");
+  const open = document.getElementById("log-cooked");
+  const search = document.getElementById("cook-search");
+  if (!dialog || !open) return;
+
+  open.addEventListener("click", () => {
+    if (!requireCloudWrite()) return;
+    search.value = "";
+    renderCookRecipeList();
+    dialog.showModal();
+  });
+
+  search.addEventListener("input", renderCookRecipeList);
+  document.getElementById("close-cook-dialog").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  document.getElementById("cook-recipe-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-cook-id]");
+    if (!button) return;
+    const recipe = recipeById(button.dataset.cookId);
+    if (!recipe) return;
+    dialog.close();
+    cookRecipe(recipe);
+  });
+}
+
+function renderCookRecipeList() {
+  const list = document.getElementById("cook-recipe-list");
+  if (!list) return;
+
+  const query = document.getElementById("cook-search").value.trim().toLowerCase();
+  const recipes = state.recipes
+    .filter((recipe) => !query || recipe.name.toLowerCase().includes(query))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!recipes.length) {
+    list.innerHTML = `<p class="empty-state">${state.recipes.length ? "No recipe matches that search." : "Add a recipe first."}</p>`;
+    return;
+  }
+
+  list.innerHTML = recipes
+    .map((recipe) => {
+      // Same coverage figure the recipe cards show, so the two never disagree.
+      const coverage = recipeStockCoverage(recipe);
+      const label = coverage.total ? (coverage.ready ? "✓ Can make now" : `${coverage.have} of ${coverage.total} in stock`) : "No amounts set";
+      return `
+        <button class="cook-recipe${coverage.ready ? " is-ready" : ""}" data-cook-id="${escapeHtml(recipe.id)}" type="button">
+          <span class="cook-recipe-body">
+            <strong>${escapeHtml(recipe.name)}</strong>
+            <span class="cook-recipe-meta">${escapeHtml(recipe.category)} · ${coverage.total || recipe.ingredients?.length || 0} ingredients</span>
+          </span>
+          <span class="cook-recipe-stock${coverage.have ? "" : " is-empty"}">${label}</span>
+        </button>`;
+    })
+    .join("");
+}
+
+function kitchenStockEntries() {
+  return Object.values(state.kitchenStock || {}).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// The stock entry for a catalog ingredient, keyed the same way the catalog is.
+function kitchenStockFor(key) {
+  return key ? state.kitchenStock?.[key] : undefined;
+}
+
+// Free-text stock entries carry no catalog key, so fall back to matching by name.
+function findKitchenStock(name) {
+  return state.kitchenStock?.[kitchenStockId("", name)];
+}
+
+// The stock entry a recipe ingredient draws from, if you actually have any.
+function stockedFor(key, name) {
+  const entry = kitchenStockFor(key) || findKitchenStock(name);
+  return entry && entry.quantity > 0 ? entry : undefined;
+}
+
+// What a recipe line actually consumes, in absolute terms: the same figure the
+// grocery list shows, so cooking and shopping never disagree.
+function recipeIngredientUsage(item) {
+  const parsed = parseRecipeIngredient(item);
+  if (!parsed) return null;
+  return {
+    key: parsed.key,
+    name: parsed.name,
+    quantity: Number(parsed.quantity || 0) * (Number(parsed.servingAmount) || 1),
+    unit: normalizeMeasurementUnit(parsed.servingUnit)
+  };
+}
+
+// How much of a recipe the kitchen stock actually covers. Lines with no quantity
+// ("salt to taste") are not counted - they should never block a recipe from
+// reading as makeable. A unit that cannot convert counts as short, never as have.
+function recipeStockCoverage(recipe) {
+  const lines = (recipe.ingredients || []).map(recipeIngredientUsage).filter((usage) => usage && usage.quantity > 0);
+  const coverage = { total: lines.length, have: 0, short: 0, missing: 0, ready: false };
+
+  lines.forEach((usage) => {
+    const entry = stockedFor(usage.key, usage.name);
+    if (!entry) {
+      coverage.missing += 1;
+      return;
+    }
+
+    const needed = usage.unit === entry.unit
+      ? usage.quantity
+      : convertMeasurement(usage.quantity, usage.unit, entry.unit);
+    if (needed === null || !Number.isFinite(needed)) coverage.short += 1;
+    // Tolerance keeps 0.30000000000000004 from reading as short of 0.3.
+    else if (entry.quantity + 1e-6 >= needed) coverage.have += 1;
+    else coverage.short += 1;
+  });
+
+  coverage.ready = coverage.total > 0 && coverage.have === coverage.total;
+  return coverage;
+}
+
+function hasKitchenStock() {
+  return Object.values(state.kitchenStock || {}).some((entry) => entry.quantity > 0);
+}
+
+// Cooking a recipe draws its ingredients down from the kitchen stock. Entries are
+// kept at zero rather than deleted, so "we're out of eggs" still shows on the list.
+function deductRecipeFromStock(recipe) {
+  const snapshot = {};
+  const used = [];
+  const skipped = [];
+
+  (recipe.ingredients || []).forEach((item) => {
+    const usage = recipeIngredientUsage(item);
+    if (!usage || usage.quantity <= 0) return;
+
+    const entry = kitchenStockFor(usage.key) || findKitchenStock(usage.name);
+    if (!entry) {
+      skipped.push({ name: usage.name, reason: "not in stock" });
+      return;
+    }
+
+    const amount = usage.unit === entry.unit
+      ? usage.quantity
+      : convertMeasurement(usage.quantity, usage.unit, entry.unit);
+    if (amount === null || !Number.isFinite(amount)) {
+      skipped.push({ name: usage.name, reason: `cannot convert to ${entry.unit || "its stock unit"}` });
+      return;
+    }
+
+    snapshot[entry.id] ??= { ...entry };
+    const before = entry.quantity;
+    entry.quantity = Math.max(0, roundTo(before - amount, 4));
+    entry.updatedAt = new Date().toISOString();
+
+    // Reported in the units the recipe calls for - "200 g", not the stock's "0.2 kg".
+    const taken = Math.min(amount, before);
+    const shown = usage.unit && usage.unit !== entry.unit ? convertMeasurement(taken, entry.unit, usage.unit) : taken;
+    used.push({
+      name: entry.name,
+      taken: roundTo(shown ?? taken, 4),
+      unit: shown === null || !usage.unit ? entry.unit : usage.unit,
+      left: entry.quantity
+    });
+  });
+
+  return { snapshot, used, skipped };
+}
+
+function describeStockDeduction({ used, skipped }) {
+  if (!used.length) {
+    return skipped.length
+      ? `Nothing was deducted - ${skipped.map((item) => `${item.name} (${item.reason})`).join(", ")}.`
+      : "Nothing to deduct from your kitchen stock.";
+  }
+
+  const drained = used.filter((item) => item.left === 0).map((item) => item.name);
+  const parts = [`Used ${used.map((item) => amountWithName(item.taken, item.unit, item.name)).join(", ")}.`];
+  if (drained.length) parts.push(`Out of ${drained.join(", ")}.`);
+  if (skipped.length) parts.push(`Skipped ${skipped.map((item) => `${item.name} (${item.reason})`).join(", ")}.`);
+  return parts.join(" ");
+}
+
+function kitchenStockAmountText(entry) {
+  return amountParts(entry.quantity, entry.unit).text || formatQuantity(entry.quantity);
+}
+
+function renderKitchenStock() {
+  const list = document.getElementById("kitchen-stock-list");
+  if (!list) return;
+
+  populateKitchenStockUnits();
+
+  const entries = kitchenStockEntries();
+  if (!entries.length) {
+    list.innerHTML = '<p class="empty-state">Add what you already have in the kitchen and it will show up on your grocery list.</p>';
+    return;
+  }
+
+  list.innerHTML = entries.map(kitchenStockTile).join("");
+
+  list.querySelectorAll("[data-edit-stock]").forEach((button) => {
+    button.addEventListener("click", () => fillKitchenStockForm(state.kitchenStock[button.dataset.editStock]));
+  });
+
+  list.querySelectorAll("[data-delete-stock]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!requireCloudWrite()) return;
+      const id = button.dataset.deleteStock;
+      delete state.kitchenStock[id];
+      resetKitchenStockForm();
+      saveState();
+      renderAll();
+    });
+  });
+}
+
+function kitchenStockTile(entry) {
+  const ingredient = kitchenStockCatalogEntry(entry);
+  const image = ingredient ? ingredientImage(ingredient) : "";
+  const visual = image
+    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(entry.name)}" /></span>`
+    : `<span class="ingredient-tile-visual">${escapeHtml(entry.name.slice(0, 1).toUpperCase())}</span>`;
+
+  return `
+    <article class="ingredient-tile kitchen-stock-tile">
+      <span class="ingredient-tile-link is-plain">
+        ${visual}
+        <span class="ingredient-tile-body">
+          <strong>${escapeHtml(entry.name)}</strong>
+          <span class="kitchen-stock-amount">${escapeHtml(kitchenStockAmountText(entry))}</span>
+          ${entry.note ? `<span class="kitchen-stock-note">${escapeHtml(entry.note)}</span>` : ""}
+        </span>
+      </span>
+      <div class="ingredient-tile-actions">
+        <button class="secondary-button" data-edit-stock="${escapeHtml(entry.id)}" type="button">Edit</button>
+        <button class="danger-button" data-delete-stock="${escapeHtml(entry.id)}" type="button">Delete</button>
+      </div>
+    </article>`;
+}
+
+function kitchenStockCatalogEntry(entry) {
+  return state.ingredients?.[entry.key] || findIngredient(entry.name) || null;
+}
+
+function populateKitchenStockUnits() {
+  const select = document.getElementById("kitchen-stock-unit");
+  if (!select || select.options.length) return;
+  select.innerHTML = unitOptionsMarkup({ selected: "piece" });
+}
 
 function ingredientTile(ingredient) {
   const image = ingredientImage(ingredient);
@@ -1553,7 +2596,7 @@ function ingredientTile(ingredient) {
     ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(ingredient.name)}" /></span>`
     : `<span class="ingredient-tile-visual">${escapeHtml(ingredient.name.slice(0, 1).toUpperCase())}</span>`;
   const macros = nutrients
-    .filter((nutrient) => tileNutrients.includes(nutrient.key))
+    .filter((nutrient) => tileNutrientKeys.includes(nutrient.key))
     .map(
       (nutrient) => `
         <span class="ingredient-macro">
@@ -1854,9 +2897,14 @@ function applyImportedRecipe(parsed) {
   document.getElementById("recipe-servings").value = parsed.servings;
   document.getElementById("recipe-notes").value = parsed.notes;
 
+  // An imported category the index has not seen yet is added rather than dropped;
+  // saving the recipe folds it into recipeCategories() for good.
   const categorySelect = document.getElementById("recipe-category");
-  const hasCategory = [...categorySelect.options].some((option) => option.value === parsed.category);
-  categorySelect.value = hasCategory ? parsed.category : "Dinner";
+  const category = String(parsed.category || "").trim();
+  if (category && ![...categorySelect.options].some((option) => option.value === category)) {
+    categorySelect.insertAdjacentHTML("beforeend", optionMarkup(category, category));
+  }
+  categorySelect.value = category || "Dinner";
 
   const ingredientRows = document.getElementById("recipe-ingredient-rows");
   ingredientRows.replaceChildren();
@@ -1919,14 +2967,21 @@ function macroCard(label, value, className = "") {
 
 function renderWeekLabels() {
   const end = addDays(selectedWeekStart, 6);
-  const range = `${formatShortDate(selectedWeekStart)} - ${formatShortDate(end)}`;
+  const range = formatWeekRange(selectedWeekStart, end);
+  const relative = isCurrentWeek() ? "This week" : "Selected week";
   document.getElementById("week-range").textContent = range;
-  document.getElementById("week-sidebar-title").textContent = isCurrentWeek() ? "This week" : "Selected week";
+  document.getElementById("week-relative").textContent = relative;
+  document.getElementById("week-sidebar-title").textContent = relative;
+  document.getElementById("current-week").disabled = isCurrentWeek();
 }
 
 function renderPlannedCount() {
   const count = plannedSlotValues().length;
+  const total = days.length * meals.length;
   document.getElementById("planned-count").textContent = `${count} meal${count === 1 ? "" : "s"} planned`;
+  document.getElementById("week-progress-label").textContent = `${count} of ${total} meals planned`;
+  document.getElementById("week-progress-fill").style.width = `${Math.round((count / total) * 100)}%`;
+  document.getElementById("week-progress").dataset.complete = String(count === total);
 }
 
 function renderAll() {
@@ -1937,6 +2992,7 @@ function renderAll() {
   renderRecipeEditor();
   renderGroceries();
   renderIngredients();
+  renderKitchenStock();
   renderMacros();
   renderPlannedCount();
   refreshRecipeIngredientRows();
@@ -1944,7 +3000,10 @@ function renderAll() {
 }
 
 function setupForms() {
+  populateNutrientInputs();
   populateServingUnits();
+  populateKitchenStockUnits();
+  bindQuantityInput(document.getElementById("kitchen-stock-quantity"));
   document.getElementById("recipe-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!requireCloudWrite()) return;
@@ -2075,6 +3134,11 @@ function setupForms() {
           if (typeof item === "object" && item.key === previousKey) item.key = key;
         });
       });
+      const stocked = state.kitchenStock[previousKey];
+      if (stocked) {
+        delete state.kitchenStock[previousKey];
+        state.kitchenStock[key] = { ...stocked, id: key, key, name };
+      }
     }
 
     state.ingredients[key] = ingredient;
@@ -2091,6 +3155,94 @@ function setupForms() {
     setAccountStatus("checking", "Signed in", "Saving to Firebase...");
     const saved = await saveCloudState("Ingredient save failed");
     if (saved) setAuthMessage("Ingredient saved to Firebase.");
+  });
+
+  document.getElementById("kitchen-stock-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!requireCloudWrite()) return;
+    const name = document.getElementById("kitchen-stock-name").value.trim();
+    if (!name) return;
+
+    const quantityInput = document.getElementById("kitchen-stock-quantity");
+    if (!isValidQuantityInput(quantityInput.value)) {
+      quantityInput.setCustomValidity("Use a whole number or a fraction, like 2 or 1 1/2.");
+      quantityInput.reportValidity();
+      quantityInput.setCustomValidity("");
+      return;
+    }
+
+    // Matching the catalog keeps the entry linked to its ingredient, so the
+    // grocery list can tell you already have it.
+    const catalogIngredient = findIngredient(name);
+    const key = catalogIngredient?.key || "";
+    const id = kitchenStockId(key, name);
+    const previousId = event.target.dataset.editingId;
+    if (previousId && previousId !== id) delete state.kitchenStock[previousId];
+
+    state.kitchenStock[id] = {
+      id,
+      key,
+      name: catalogIngredient?.name || name,
+      quantity: roundTo(parseFractionInput(quantityInput.value), 4),
+      unit: normalizeMeasurementUnit(document.getElementById("kitchen-stock-unit").value),
+      note: document.getElementById("kitchen-stock-note").value.trim(),
+      updatedAt: new Date().toISOString()
+    };
+
+    resetKitchenStockForm();
+    renderAll();
+
+    authEls.syncStatus.textContent = "Saving";
+    setAccountStatus("checking", "Signed in", "Saving to Firebase...");
+    const saved = await saveCloudState("Kitchen stock save failed");
+    if (saved) setAuthMessage("Kitchen stock saved to Firebase.");
+  });
+
+  document.getElementById("kitchen-stock-cancel").addEventListener("click", resetKitchenStockForm);
+
+  document.getElementById("macro-profile").innerHTML = nutritionProfiles
+    .map((entry) => optionMarkup(entry.value, entry.label))
+    .join("");
+
+  // Your calorie target and reference intake live on your own account.
+  [
+    ["macro-calories", "calories"],
+    ["macro-profile", "profile"]
+  ].forEach(([id, field]) => {
+    document.getElementById(id).addEventListener("change", (event) => {
+      if (!requireCloudWrite()) return;
+      personalNutrition = normalizePersonalNutrition({ ...personalNutrition, [field]: event.target.value });
+      renderMacros();
+      void savePersonalNutrition();
+    });
+  });
+
+  document.getElementById("macro-edit-goals").addEventListener("click", () => {
+    editingGoals = !editingGoals;
+    renderMacros();
+  });
+
+  // How many people the plan feeds is a fact about the plan, so it stays shared.
+  document.getElementById("macro-people").addEventListener("change", (event) => {
+    if (!requireCloudWrite()) return;
+    state.nutrition = normalizeNutritionSettings({ people: event.target.value });
+    saveState();
+    renderMacros();
+  });
+
+  // The same ingredient-index picker the recipe rows use, so both search the
+  // catalogue the same way and show the same serving and calorie hints.
+  bindIngredientPicker({
+    input: document.getElementById("kitchen-stock-name"),
+    results: document.getElementById("kitchen-stock-results"),
+    onChoose: (ingredient) => {
+      applyKitchenStockUnitDefault(ingredient);
+      document.getElementById("kitchen-stock-quantity").focus();
+    }
+  });
+
+  document.getElementById("kitchen-stock-name").addEventListener("change", (event) => {
+    applyKitchenStockUnitDefault(findIngredient(event.target.value.trim()));
   });
 
   document.getElementById("ingredient-photo").addEventListener("change", async (event) => {
@@ -2122,6 +3274,7 @@ function setupForms() {
   document.getElementById("next-week").addEventListener("click", () => changeWeek(7));
   document.getElementById("current-week").addEventListener("click", () => {
     selectedWeekStart = getWeekStart(new Date());
+    resetPlannerDay();
     renderAll();
   });
 
@@ -2161,8 +3314,14 @@ function addRecipeStepRow(value = "") {
     <label>
       <span class="recipe-step-label">Step</span>
       <textarea class="recipe-step-input" required placeholder="Describe this step...">${escapeHtml(value)}</textarea>
+      <span class="recipe-step-tools">
+        <select class="recipe-step-tag" aria-label="Label the selected words as an ingredient"></select>
+        <span class="recipe-step-tag-hint"></span>
+      </span>
     </label>
     <button class="danger-button" type="button">Remove</button>`;
+
+  bindStepIngredientTagger(row);
 
   row.querySelector(".danger-button").addEventListener("click", () => {
     row.remove();
@@ -2172,6 +3331,110 @@ function addRecipeStepRow(value = "") {
   container.append(row);
   makeRowsSortable(container, { item: ".recipe-step-row", onReorder: updateRecipeStepNumbers });
   updateRecipeStepNumbers();
+}
+
+const untagStepValue = "__untag__";
+
+// The names currently typed into this recipe's ingredient rows — the same index the
+// step labels have to resolve against when the recipe is rendered.
+function recipeFormIngredientNames() {
+  const names = [...document.querySelectorAll(".recipe-ingredient-search")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+  return [...new Map(names.map((name) => [name.toLowerCase(), name])).values()].sort((a, b) => a.localeCompare(b));
+}
+
+// Select words in a step, pick the ingredient they refer to, and the step stores
+// a {{label}} so the saved recipe highlights those words with their amount.
+function bindStepIngredientTagger(row) {
+  const textarea = row.querySelector(".recipe-step-input");
+  const select = row.querySelector(".recipe-step-tag");
+  const hint = row.querySelector(".recipe-step-tag-hint");
+  let selection = { start: 0, end: 0 };
+
+  const remember = () => {
+    selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+  };
+  ["keyup", "mouseup", "select", "blur"].forEach((event) => textarea.addEventListener(event, remember));
+
+  const setHint = (message) => {
+    hint.textContent = message;
+  };
+
+  const repopulate = () => {
+    const names = recipeFormIngredientNames();
+    const tagged = countStepTags(textarea.value);
+    select.innerHTML = [
+      optionMarkup("", names.length ? "Label selection as..." : "Add an ingredient first"),
+      ...names.map((name) => optionMarkup(name, name)),
+      tagged ? optionMarkup(untagStepValue, `Remove label${tagged > 1 ? "s" : ""} in selection`) : ""
+    ].join("");
+    select.value = "";
+    select.disabled = !names.length && !tagged;
+  };
+
+  select.addEventListener("mousedown", repopulate);
+  select.addEventListener("focus", repopulate);
+  select.addEventListener("change", () => {
+    const choice = select.value;
+    select.value = "";
+    if (!choice) return;
+
+    const { start, end } = selection;
+    if (start === end) {
+      setHint("Select the words in the step first.");
+      return;
+    }
+
+    const result = choice === untagStepValue
+      ? removeStepTagsInSelection(textarea.value, start, end)
+      : addStepTag(textarea.value, start, end, choice);
+
+    if (!result) {
+      setHint("That selection cannot be labelled - avoid { } and | characters.");
+      return;
+    }
+
+    textarea.value = result.value;
+    textarea.focus();
+    textarea.setSelectionRange(result.start, result.end);
+    remember();
+    setHint(choice === untagStepValue ? "Label removed." : `Labelled as ${choice}.`);
+  });
+
+  repopulate();
+}
+
+function countStepTags(value) {
+  return [...String(value ?? "").matchAll(stepTagPattern)].length;
+}
+
+function addStepTag(value, start, end, name) {
+  const selected = value.slice(start, end).trim();
+  if (!selected || /[{}|]/.test(selected)) return null;
+
+  const leading = value.slice(start).indexOf(selected) + start;
+  const tag = stepTagMarkup(name, selected);
+  const next = value.slice(0, leading) + tag + value.slice(leading + selected.length);
+  return { value: next, start: leading, end: leading + tag.length };
+}
+
+function removeStepTagsInSelection(value, start, end) {
+  let result = "";
+  let cursor = 0;
+  let removed = 0;
+  for (const match of String(value).matchAll(stepTagPattern)) {
+    const tagEnd = match.index + match[0].length;
+    result += value.slice(cursor, match.index);
+    // Any label the selection touches is unwrapped back to its visible words.
+    const overlaps = match.index < end && tagEnd > start;
+    result += overlaps ? stripStepTags(match[0]) : match[0];
+    if (overlaps) removed += 1;
+    cursor = tagEnd;
+  }
+  if (!removed) return null;
+  result += value.slice(cursor);
+  return { value: result, start: Math.min(start, result.length), end: Math.min(end, result.length) };
 }
 
 function updateRecipeStepNumbers() {
@@ -2249,33 +3512,25 @@ function recipeIngredientFormValue(item) {
   return {
     name: ingredient.name || "",
     quantity: Number(item.quantity || 1),
-    measure: item.measure || "serving"
+    // Normalized so legacy measures ("eggs") still match an option in the dropdown.
+    measure: normalizeMeasurementUnit(item.measure) || "serving"
   };
 }
 
 function recipeMeasurementOptions(ingredient, selectedMeasure) {
   const serving = ingredient ? parseServing(ingredient.serving) : null;
   const selected = selectedMeasure || "serving";
-  const specialOptions = `
-    <option value="serving" ${selected === "serving" ? "selected" : ""}>Serving${serving ? ` (${escapeHtml(ingredient.serving)})` : "(s)"}</option>
-    <option value="container" ${selected === "container" ? "selected" : ""}>Whole container${ingredient ? ` (${formatQuantity(servingsPerContainer(ingredient))} servings)` : "(s)"}</option>`;
-  const measurementOptions = servingUnits
-    .map((section) => {
-      const options = section.units
-        .map((unit) => {
-          const compatible = !serving || measurementIsCompatible(unit, serving.unit);
-          return `<option value="${unit}" ${selected === unit ? "selected" : ""} ${compatible ? "" : "disabled"}>${unit}</option>`;
-        })
-        .join("");
-      return `<optgroup label="${section.group}">${options}</optgroup>`;
-    })
-    .join("");
+  const lead =
+    optionMarkup("serving", `Serving${serving ? ` (${ingredient.serving})` : "(s)"}`, selected) +
+    optionMarkup("container", `Whole container${ingredient ? ` (${formatQuantity(servingsPerContainer(ingredient))} servings)` : "(s)"}`, selected);
 
-  const servingUnit = normalizeMeasurementUnit(serving?.unit);
-  const customOption = serving && !knownServingUnit(servingUnit)
-    ? `<optgroup label="Ingredient unit"><option value="${escapeHtml(serving.unit)}" ${selected === serving.unit ? "selected" : ""}>${escapeHtml(serving.unit)}</option></optgroup>`
-    : "";
-  return specialOptions + measurementOptions + customOption;
+  return unitOptionsMarkup({
+    selected,
+    lead,
+    // Units that cannot convert to this ingredient's serving stay visible but unpickable.
+    compatibleWith: serving?.unit,
+    extraUnit: serving?.unit
+  });
 }
 
 // Pointer-based row reordering: works with mouse and touch, and with the
@@ -2386,7 +3641,15 @@ function addRecipeIngredientRow(item = {}) {
   const search = row.querySelector(".recipe-ingredient-search");
   const quantity = row.querySelector(".recipe-ingredient-quantity");
   bindQuantityInput(quantity);
-  bindIngredientPicker(row);
+  bindIngredientPicker({
+    input: search,
+    results: row.querySelector(".ingredient-picker-results"),
+    onChoose: () => {
+      updateRecipeIngredientRow(row);
+      refreshRecipeMacroPreview();
+      quantity.focus();
+    }
+  });
   const measure = row.querySelector(".recipe-ingredient-measure");
   search.addEventListener("input", () => {
     updateRecipeIngredientRow(row);
@@ -2427,9 +3690,8 @@ function ingredientSuggestions(query) {
 
 // A typed search box backed by the saved ingredients, replacing the native datalist
 // so suggestions are tappable, keyboard navigable and show serving and calories.
-function bindIngredientPicker(row) {
-  const input = row.querySelector(".recipe-ingredient-search");
-  const results = row.querySelector(".ingredient-picker-results");
+function bindIngredientPicker({ input, results, onChoose }) {
+  if (!input || !results) return;
   let matches = [];
   let activeIndex = -1;
 
@@ -2488,9 +3750,7 @@ function bindIngredientPicker(row) {
     if (!ingredient) return;
     input.value = ingredient.name;
     close();
-    updateRecipeIngredientRow(row);
-    refreshRecipeMacroPreview();
-    row.querySelector(".recipe-ingredient-quantity").focus();
+    onChoose?.(ingredient);
   };
 
   input.addEventListener("input", open);
@@ -2571,7 +3831,9 @@ function collectRecipeIngredients(allowIncomplete = false) {
       ingredients.push({ key: ingredient.key, quantity, measure });
     } else {
       const unit = measure === "serving" ? "" : measure === "container" ? "container" : measure;
-      ingredients.push(`${formatQuantity(quantity)} ${unit} ${name}`.replace(/\s+/g, " ").trim());
+      const amount = amountParts(quantity, unit);
+      const label = unitNamesIngredient(amount.unit, name) ? "" : name;
+      ingredients.push(`${amount.text} ${label}`.replace(/\s+/g, " ").trim());
     }
   }
 
@@ -2610,22 +3872,7 @@ function refreshRecipeIngredientRows() {
 function populateServingUnits() {
   const select = document.getElementById("ingredient-serving-unit");
   if (!select || select.options.length) return;
-  servingUnits.forEach((section) => {
-    const group = document.createElement("optgroup");
-    group.label = section.group;
-    section.units.forEach((unit) => {
-      const option = document.createElement("option");
-      option.value = unit;
-      option.textContent = unit;
-      group.appendChild(option);
-    });
-    select.appendChild(group);
-  });
-  const other = document.createElement("option");
-  other.value = customServingUnit;
-  other.textContent = "Other...";
-  select.appendChild(other);
-  select.value = "g";
+  select.innerHTML = unitOptionsMarkup({ selected: "g", includeOther: true });
   select.addEventListener("change", syncServingUnitCustom);
   bindQuantityInput(document.getElementById("ingredient-serving-amount"));
   bindQuantityInput(document.getElementById("ingredient-servings-per-container"));
@@ -2665,7 +3912,10 @@ function readServingInputs() {
 }
 
 function setServingInputs(serving) {
-  const { amount, unit } = parseServing(serving);
+  const { amount, unit: rawUnit } = parseServing(serving);
+  // Normalized first so a serving saved as "1 eggs" selects the "egg" option
+  // instead of falling back to the free-text box.
+  const unit = normalizeMeasurementUnit(rawUnit);
   document.getElementById("ingredient-serving-amount").value = formatQuantity(amount);
   const select = document.getElementById("ingredient-serving-unit");
   const custom = document.getElementById("ingredient-serving-unit-other");
@@ -2673,7 +3923,7 @@ function setServingInputs(serving) {
     select.value = unit;
   } else {
     select.value = customServingUnit;
-    custom.value = unit;
+    custom.value = rawUnit;
   }
   syncServingUnitCustom();
 }
@@ -2697,6 +3947,36 @@ function fillIngredientForm(ingredient) {
   document.getElementById("ingredient-name").focus();
 }
 
+function fillKitchenStockForm(entry) {
+  if (!entry) return;
+  const form = document.getElementById("kitchen-stock-form");
+  form.dataset.editingId = entry.id;
+  document.getElementById("kitchen-stock-name").value = entry.name;
+  document.getElementById("kitchen-stock-quantity").value = formatQuantity(entry.quantity);
+  const select = document.getElementById("kitchen-stock-unit");
+  if (knownServingUnit(entry.unit)) select.value = entry.unit;
+  document.getElementById("kitchen-stock-note").value = entry.note || "";
+  document.getElementById("kitchen-stock-cancel").hidden = false;
+  document.getElementById("kitchen-stock-name").focus();
+}
+
+// Picking a catalogue ingredient defaults the unit to that ingredient's own serving unit.
+function applyKitchenStockUnitDefault(ingredient) {
+  if (!ingredient) return;
+  const unit = normalizeMeasurementUnit(parseServing(ingredient.serving).unit);
+  if (knownServingUnit(unit)) document.getElementById("kitchen-stock-unit").value = unit;
+}
+
+function resetKitchenStockForm() {
+  const form = document.getElementById("kitchen-stock-form");
+  if (!form) return;
+  form.reset();
+  delete form.dataset.editingId;
+  document.getElementById("kitchen-stock-quantity").value = "1";
+  document.getElementById("kitchen-stock-unit").value = "piece";
+  document.getElementById("kitchen-stock-cancel").hidden = true;
+}
+
 function resetIngredientMacroInputs() {
   nutrients.forEach((nutrient) => {
     document.getElementById(nutrientInputId(nutrient)).value = 0;
@@ -2707,6 +3987,35 @@ function resetIngredientMacroInputs() {
 
 function nutrientInputId(nutrient) {
   return `ingredient-${nutrient.key}`;
+}
+
+// Built from the nutrient index so adding a vitamin never means hand-writing a
+// field, and the form can never drift from what the totals actually track.
+function populateNutrientInputs() {
+  const container = document.getElementById("ingredient-nutrients");
+  if (!container || container.children.length) return;
+
+  container.innerHTML = nutrientGroups
+    .map((group) => {
+      const fields = nutrients
+        .filter((nutrient) => nutrient.group === group)
+        .map(
+          (nutrient) => `
+          <label class="macro-field">
+            <span class="macro-field-label">${escapeHtml(nutrient.label)}</span>
+            <span class="macro-input"${nutrient.unit ? ` data-unit="${escapeHtml(nutrient.unit)}"` : ""}>
+              <input id="${escapeHtml(nutrientInputId(nutrient))}" min="0" step="any" type="number" inputmode="decimal" value="0" />
+            </span>
+          </label>`
+        )
+        .join("");
+      return `
+        <div class="macro-field-group">
+          <span class="macro-field-group-label">${escapeHtml(group)}</span>
+          <div class="macro-field-grid">${fields}</div>
+        </div>`;
+    })
+    .join("");
 }
 
 function readNutrientInputs() {
@@ -2746,6 +4055,7 @@ function setupAuth() {
   document.getElementById("open-profile").addEventListener("click", openProfileDialog);
   document.getElementById("mobile-open-settings").addEventListener("click", openProfileDialog);
   document.getElementById("cancel-profile").addEventListener("click", () => authEls.profileDialog.close());
+  document.getElementById("close-profile-dialog").addEventListener("click", () => authEls.profileDialog.close());
   document.getElementById("save-profile").addEventListener("click", saveProfile);
   document.getElementById("remove-profile-photo").addEventListener("click", () => {
     profileDraftPhoto = "";
@@ -3166,7 +4476,8 @@ async function saveProfile() {
   const profile = {
     displayName,
     photoUrl: profileDraftPhoto || "",
-    hideNutrition: authEls.hideNutrition.checked
+    hideNutrition: authEls.hideNutrition.checked,
+    nutrition: personalNutrition
   };
   setProfileMessage("Saving your profile...");
 
@@ -3567,6 +4878,7 @@ function authErrorMessage(error) {
 
 function changeWeek(daysToMove) {
   selectedWeekStart = addDays(selectedWeekStart, daysToMove);
+  resetPlannerDay();
   getCurrentPlan();
   renderAll();
 }
@@ -3598,6 +4910,16 @@ function isCurrentWeek() {
 
 function formatDayDate(date) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+}
+
+// "Sep 1 - 7, 2026" when the week stays inside one month, so the label fits a
+// phone-width week bar without wrapping.
+function formatWeekRange(start, end) {
+  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  if (sameMonth) return `${formatDayDate(start)} - ${end.getDate()}, ${end.getFullYear()}`;
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const from = sameYear ? formatDayDate(start) : formatShortDate(start);
+  return `${from} - ${formatShortDate(end)}`;
 }
 
 function formatShortDate(date) {
@@ -3640,6 +4962,15 @@ function updateDataControls() {
     "#recipe-import-run",
     "#ingredient-form input",
     "#ingredient-form button",
+    "#kitchen-stock-form input",
+    "#kitchen-stock-form select",
+    "#kitchen-stock-form button",
+    "#macro-people",
+    "#macro-calories",
+    "#macro-profile",
+    "#macro-edit-goals",
+    "[data-goal-key]",
+    "[data-goal-reset]",
     "#create-planner-form input",
     "#create-planner-form button",
     "[data-join-planner]",
@@ -3647,8 +4978,13 @@ function updateDataControls() {
     "[data-delete]",
     "[data-edit-recipe]",
     "[data-edit-open-recipe]",
+    "[data-cook-recipe]",
+    "[data-undo-cook]",
+    "#log-cooked",
     "[data-delete-ingredient]",
-    "[data-edit-ingredient]"
+    "[data-edit-ingredient]",
+    "[data-delete-stock]",
+    "[data-edit-stock]"
   ];
 
   document.querySelectorAll(selectors.join(",")).forEach((element) => {
@@ -3679,6 +5015,8 @@ function escapeHtml(value) {
 }
 
 renderTabs();
+setupCookDialog();
+setupPlannerLayout();
 setupForms();
 setupRecipeImport();
 setupAuth();

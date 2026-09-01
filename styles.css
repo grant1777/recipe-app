@@ -173,6 +173,12 @@ button {
   display: none;
 }
 
+/* The "log what you cooked" action belongs to the mobile tab bar only; on desktop
+   the same job is done by "I made this" on each recipe. */
+.tab-action {
+  display: none;
+}
+
 .tab-button,
 .primary-button,
 .danger-button {
@@ -435,16 +441,232 @@ main {
   font-weight: 800;
 }
 
-.week-strip {
+/* ---------- Meal planner ---------- */
+
+.week-bar {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.week-nav {
   align-items: center;
-  background: #e8f0ea;
-  border: 1px solid #cfe0d4;
-  border-radius: 8px;
-  color: #264337;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.icon-button {
+  align-items: center;
+  background: var(--panel);
+  border: 0;
+  border-radius: 999px;
+  color: var(--ink);
   display: flex;
+  font-size: 1.4rem;
+  height: 40px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 40px;
+}
+
+.icon-button:hover {
+  background: #e6ded2;
+}
+
+.week-nav-label {
+  display: grid;
+  gap: 1px;
+  justify-items: center;
+  min-width: 0;
+  text-align: center;
+}
+
+.week-nav-label strong {
+  font-size: 1.02rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-nav-label span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.week-bar-meta {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
-  min-height: 46px;
-  padding: 12px 16px;
+  padding-top: 12px;
+}
+
+.week-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.week-progress-track {
+  background: var(--panel);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.week-progress-fill {
+  background: var(--accent);
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+  transition: width 0.25s ease;
+  width: 0;
+}
+
+.week-progress-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.week-progress[data-complete="true"] .week-progress-fill {
+  background: var(--gold);
+}
+
+.week-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.week-actions .secondary-button,
+.week-actions .danger-button {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.week-actions button[disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.planner-modes {
+  background: var(--panel);
+  border-radius: 999px;
+  display: none;
+  gap: 2px;
+  padding: 3px;
+}
+
+.planner-mode {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 6px 14px;
+}
+
+.planner-mode.active {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(33, 32, 31, 0.14);
+  color: var(--ink);
+}
+
+.day-strip {
+  display: none;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 6px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.day-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.day-pill {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  flex: 1 0 auto;
+  gap: 3px;
+  justify-items: center;
+  min-height: 68px;
+  min-width: 52px;
+  padding: 8px 6px;
+  scroll-snap-align: center;
+}
+
+.day-pill-name {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.day-pill-date {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.day-pill-dots {
+  display: flex;
+  gap: 3px;
+  height: 5px;
+}
+
+.day-pill-dot {
+  background: var(--line);
+  border-radius: 999px;
+  height: 5px;
+  width: 5px;
+}
+
+.day-pill-dot[data-on="true"] {
+  background: var(--accent);
+}
+
+.day-pill[data-today="true"] .day-pill-name {
+  color: var(--gold);
+}
+
+.day-pill[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.day-pill[aria-pressed="true"] .day-pill-name,
+.day-pill[aria-pressed="true"][data-today="true"] .day-pill-name {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.day-pill[aria-pressed="true"] .day-pill-dot {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.day-pill[aria-pressed="true"] .day-pill-dot[data-on="true"] {
+  background: #fff;
 }
 
 .week-grid {
@@ -464,21 +686,60 @@ main {
 }
 
 .day-column {
+  border-radius: 14px;
   display: grid;
   gap: 12px;
   min-width: 0;
-  padding: 14px;
+  padding: 12px;
+}
+
+.day-column[data-today="true"] {
+  border-color: #cbdfd2;
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.day-column-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.day-column-title {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
 }
 
 .day-column h3 {
-  font-size: 1rem;
-  margin: 0 0 -8px;
+  font-size: 0.98rem;
+  margin: 0;
 }
 
 .day-date {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 800;
+}
+
+.day-badge {
+  background: var(--panel);
+  border-radius: 999px;
+  color: var(--muted);
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+.day-badge[data-complete="true"] {
+  background: #e6f0e9;
+  color: var(--accent-dark);
+}
+
+.day-column-slots {
+  display: grid;
+  gap: 8px;
 }
 
 .meal-slot {
@@ -486,35 +747,149 @@ main {
   gap: 6px;
 }
 
-.meal-slot-controls {
+.meal-slot-main {
   align-items: center;
+  background: #fbfaf7;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   display: grid;
-  gap: 6px;
-  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 56px;
+  padding: 8px 10px 8px 8px;
+  position: relative;
+}
+
+.meal-slot-main:hover {
+  border-color: #c9bfb2;
+}
+
+.meal-slot[data-filled="true"] .meal-slot-main {
+  background: #fff;
+  border-color: #cbdfd2;
+}
+
+.meal-slot[data-kind="takeout"] .meal-slot-main {
+  border-color: #ecd6bd;
+}
+
+/* The select covers the whole row so tapping anywhere opens the native picker,
+   while the styled text underneath shows the choice. */
+.meal-slot-select {
+  border: 0;
+  cursor: pointer;
+  inset: 0;
+  min-height: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.meal-slot-main:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.meal-slot-select:disabled {
+  cursor: not-allowed;
+}
+
+.meal-slot-main:has(.meal-slot-select:disabled) {
+  opacity: 0.55;
+}
+
+.meal-slot-main:has(.meal-slot-select:disabled) .meal-slot-chevron {
+  visibility: hidden;
+}
+
+.meal-slot-thumb {
+  align-items: center;
+  background: var(--panel);
+  background-position: center;
+  background-size: cover;
+  border-radius: 9px;
+  display: flex;
+  flex: none;
+  font-size: 1.1rem;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.meal-slot-thumb.has-photo {
+  font-size: 0;
+}
+
+.meal-slot-text {
+  display: grid;
+  gap: 1px;
   min-width: 0;
 }
 
-.meal-slot-controls[data-takeout="true"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+.meal-slot-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.meal-slot-controls[data-takeout="true"] select,
-.meal-slot-controls[data-takeout="true"] .takeout-name {
-  font-size: 0.88rem;
-  padding-left: 8px;
-  padding-right: 6px;
+.meal-slot-value {
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.meal-slot-controls select,
-.meal-slot-controls .takeout-name {
-  min-width: 0;
+.meal-slot[data-filled="false"] .meal-slot-value {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.meal-slot-chevron {
+  color: var(--muted);
+  flex: none;
+  font-size: 0.8rem;
 }
 
 .meal-slot .takeout-name {
   font-size: 0.9rem;
+  min-height: 40px;
 }
 
-.meal-slot label,
+.planner-empty {
+  background: #fff;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  justify-items: center;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.planner-empty-icon {
+  font-size: 2rem;
+}
+
+/* Nothing to plan into yet, so the week tools would only be noise. */
+#planner-view[data-has-planner="false"] .week-bar-meta,
+#planner-view[data-has-planner="false"] .day-strip {
+  display: none;
+}
+
+.planner-empty p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 34ch;
+}
+
+.narrow-label {
+  display: none;
+}
+
 .filter-row label,
 .recipe-form label {
   color: var(--muted);
@@ -699,6 +1074,42 @@ body.hide-nutrition .nutrition-only {
   transform: translateY(-2px);
 }
 
+/* Everything for this one is already in the kitchen. */
+.recipe-catalogue-card.is-ready {
+  border-color: var(--accent);
+  box-shadow: inset 0 3px 0 0 var(--accent);
+}
+
+.recipe-catalogue-card.is-ready:hover,
+.recipe-catalogue-card.is-ready:focus-visible {
+  border-color: var(--accent-dark);
+  box-shadow: inset 0 3px 0 0 var(--accent), 0 12px 28px rgba(45, 106, 79, 0.18);
+}
+
+.recipe-catalogue-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stock-pill {
+  background: #f7f4ef;
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 5px 9px;
+  white-space: nowrap;
+  width: fit-content;
+}
+
+.stock-pill.is-ready {
+  background: #e6f0e9;
+  color: var(--accent-dark);
+}
+
 .recipe-catalogue-visual {
   align-items: center;
   background: linear-gradient(135deg, #d8e6dc, #f1dfbd);
@@ -800,7 +1211,13 @@ body.hide-nutrition .nutrition-only {
 .recipe-detail-actions {
   align-items: center;
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Back stays hard left; the recipe's own actions group on the right. */
+.recipe-detail-actions [data-back-to-recipes] {
+  margin-right: auto;
 }
 
 .recipe-detail-image {
@@ -959,27 +1376,29 @@ body.hide-nutrition .nutrition-only {
 }
 
 .planner-toolbar {
-  align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  align-items: end;
   display: flex;
-  gap: 10px;
-  padding: 10px 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.planner-toolbar label {
+.planner-toolbar-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.planner-toolbar-field > span {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .planner-toolbar select {
-  max-width: 280px;
-}
-
-.planner-toolbar button {
-  margin-left: auto;
+  max-width: 240px;
+  min-width: 160px;
 }
 
 .recipe-step-builder {
@@ -1027,6 +1446,26 @@ body.hide-nutrition .nutrition-only {
 .recipe-step-row label {
   display: grid;
   gap: 6px;
+}
+
+.recipe-step-tools {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recipe-step-tag {
+  flex: 0 1 240px;
+  font-size: 0.8rem;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
+.recipe-step-tag-hint {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
 }
 
 .ingredient-builder-header {
@@ -1240,6 +1679,19 @@ body.hide-nutrition .nutrition-only {
   gap: 7px;
   margin: 0;
   padding-left: 20px;
+}
+
+/* Tinted chip so the amount separates from the ingredient name at a glance.
+   Named apart from .ingredient-amount, which is the hover bubble on a mention. */
+.ingredient-measure {
+  background: #e6f0e9;
+  border-radius: 6px;
+  color: var(--accent-dark);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  margin-right: 3px;
+  padding: 1px 6px;
+  white-space: nowrap;
 }
 
 .recipe-card-actions {
@@ -1486,6 +1938,21 @@ body.hide-nutrition .nutrition-only {
   color: var(--ink);
 }
 
+.grocery-card-stock {
+  background: #eef4ee;
+  border-radius: 8px;
+  color: #3f6b4f;
+  font-size: 0.74rem;
+  font-weight: 700;
+  justify-self: start;
+  margin-top: 3px;
+  padding: 5px 8px;
+}
+
+.grocery-card.is-stocked {
+  border-color: #a9c9b2;
+}
+
 .grocery-card-link {
   align-content: center;
   border-top: 1px solid var(--line);
@@ -1668,6 +2135,33 @@ body.hide-nutrition .nutrition-only {
   padding: 6px 8px;
 }
 
+.kitchen-stock-form-grid {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
+.kitchen-stock-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.kitchen-stock-tile .ingredient-tile-body {
+  padding-bottom: 12px;
+}
+
+.kitchen-stock-amount {
+  color: var(--accent-dark);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.kitchen-stock-note {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .mapping-row {
   align-items: center;
   background: #fff;
@@ -1704,7 +2198,281 @@ body.hide-nutrition .nutrition-only {
 }
 
 .macro-dashboard {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 18px;
+  grid-template-columns: 1fr;
+}
+
+.macro-controls {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.macro-controls-title {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  font-weight: 800;
+  gap: 8px;
+  margin: 0;
+}
+
+.macro-controls-title span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.macro-controls-title button {
+  margin-left: auto;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.macro-controls-title button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.macro-custom-flag {
+  background: #e6f0e9;
+  border-radius: 999px;
+  color: var(--accent-dark);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-left: 6px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.macro-bounds {
+  align-items: end;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 8px;
+}
+
+.macro-bound {
+  color: var(--muted);
+  display: grid;
+  flex: 1 1 90px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  gap: 3px;
+  min-width: 0;
+}
+
+.macro-bound input {
+  min-height: 34px;
+  padding: 5px 8px;
+  width: 100%;
+}
+
+.macro-bounds .text-button {
+  flex: none;
+  font-size: 0.72rem;
+}
+
+.macro-control-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+}
+
+.macro-control {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.76rem;
+  font-weight: 800;
+  gap: 5px;
+  min-width: 0;
+}
+
+.macro-control input,
+.macro-control select {
+  min-height: 40px;
+  width: 100%;
+}
+
+.macro-note {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.macro-progress-daily {
+  flex: 1 1 auto;
+  font-weight: 700;
+  text-align: center;
+}
+
+.macro-summary {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+}
+
+.macro-summary-headline {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.macro-summary-headline strong {
+  color: var(--accent-dark);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.macro-summary-headline span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.macro-summary-meta {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  font-weight: 700;
+  gap: 14px;
+}
+
+.macro-group {
+  display: grid;
+  gap: 10px;
+}
+
+.macro-group h3 {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.macro-group-rows {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+.macro-progress {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 13px;
+}
+
+.macro-progress-head {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.macro-progress-name {
+  font-weight: 800;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.macro-progress-value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.macro-progress-value strong {
+  font-size: 0.95rem;
+}
+
+.macro-progress-value em {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.macro-progress-track {
+  background: var(--panel);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.macro-progress-fill {
+  background: var(--accent);
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+  transition: width 200ms ease;
+}
+
+.macro-progress-foot {
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.macro-progress-percent {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status colours: green on track, amber under, red over a limit. */
+.macro-progress[data-status="good"] .macro-progress-fill { background: var(--accent); }
+.macro-progress[data-status="good"] .macro-progress-status { color: var(--accent-dark); }
+
+.macro-progress[data-status="low"] .macro-progress-fill { background: #d9a441; }
+.macro-progress[data-status="low"] .macro-progress-status { color: #8a6318; }
+
+.macro-progress[data-status="short"] .macro-progress-fill { background: #cbbfae; }
+
+.macro-progress[data-status="over"] .macro-progress-fill { background: #c0553f; }
+.macro-progress[data-status="over"] .macro-progress-status { color: #8f2d20; }
+
+.macro-progress[data-status="none"] {
+  opacity: 0.6;
+}
+
+.macro-field-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.macro-field-group {
+  display: grid;
+  gap: 6px;
+}
+
+.macro-field-group-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .macro-card {
@@ -1732,6 +2500,10 @@ body.hide-nutrition .nutrition-only {
 @media (max-width: 1050px) {
   .app-shell {
     grid-template-columns: 1fr;
+    /* Stacked, the rows are auto-sized, and a grid's default align-content
+       stretches those to fill min-height: 100vh - which inflated the app bar to
+       nearly 200px. Pin the bar to its content and let main take the rest. */
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .sidebar {
@@ -1747,14 +2519,57 @@ body.hide-nutrition .nutrition-only {
     text-align: center;
   }
 
-  .week-grid,
-  .form-grid,
-  .macro-dashboard {
+  .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .week-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
   }
 
   .macro-row {
     grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  }
+}
+
+/* Tablet and phone: one day at a time by default, driven by the day strip. */
+@media (max-width: 900px) {
+  .planner-modes {
+    display: flex;
+  }
+
+  .day-strip {
+    display: flex;
+  }
+
+  .week-grid[data-planner-mode="day"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .week-grid[data-planner-mode="day"] .day-column:not([data-selected="true"]) {
+    display: none;
+  }
+
+  .week-grid[data-planner-mode="day"] .day-column {
+    padding: 14px;
+  }
+
+  .week-grid[data-planner-mode="day"] .day-column h3 {
+    font-size: 1.15rem;
+  }
+
+  .week-grid[data-planner-mode="day"] .meal-slot-main {
+    min-height: 66px;
+    padding: 10px 12px 10px 10px;
+  }
+
+  .week-grid[data-planner-mode="day"] .meal-slot-thumb {
+    height: 46px;
+    width: 46px;
+  }
+
+  .week-grid[data-planner-mode="day"] .meal-slot-value {
+    font-size: 1rem;
   }
 }
 
@@ -1777,19 +2592,36 @@ body.hide-nutrition .nutrition-only {
     border-bottom: 1px solid var(--line);
     display: flex;
     justify-content: space-between;
-    padding: calc(10px + env(safe-area-inset-top)) 20px 10px;
+    padding: calc(6px + env(safe-area-inset-top)) 14px 6px;
     position: sticky;
     top: 0;
     z-index: 20;
   }
 
   .mobile-app-header strong {
-    font-size: 1.05rem;
+    font-size: 0.98rem;
   }
 
-  .mobile-app-header button {
-    min-height: 36px;
-    padding: 7px 11px;
+  /* An icon keeps the app bar short; the label lives in aria-label and title. */
+  .mobile-settings-button {
+    align-items: center;
+    background: var(--panel);
+    border: 0;
+    border-radius: 999px;
+    color: var(--ink);
+    display: flex;
+    flex: none;
+    font-size: 1.15rem;
+    height: 34px;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+    width: 34px;
+  }
+
+  .mobile-settings-button:hover,
+  .mobile-settings-button:focus-visible {
+    background: #ece5db;
   }
 
   main {
@@ -1800,10 +2632,65 @@ body.hide-nutrition .nutrition-only {
     gap: 16px;
   }
 
+  /* Every page's header occupies the same block - a title plus one row of
+     actions, the shape the Recipes page has - so content below always starts at
+     the same point no matter which tab you are on. */
   .view-header {
+    align-content: start;
     align-items: stretch;
     display: grid;
     gap: 10px;
+    /* 42px title block + 10px gap + a 38px row of actions. Pages with no actions
+       are padded to the same block rather than sitting higher. */
+    min-height: 90px;
+  }
+
+  /* Pinned rather than inherited so the title block is 42px on every page. A
+     long heading ellipsises rather than wrapping and pushing content down. */
+  .view-header h2 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .view-header .eyebrow {
+    font-size: 0.68rem;
+    line-height: 1.2;
+    margin-bottom: 3px;
+  }
+
+  /* Every header's action row is one height, whatever controls it holds. */
+  .view-header button,
+  .view-header input,
+  .view-header select {
+    line-height: 1.2;
+    min-height: 38px;
+    padding-block: 0;
+  }
+
+  /* The action row is always one line, whatever it holds; controls shrink and
+     ellipsis rather than wrapping onto a second row and growing the header. */
+  .view-header > :nth-child(2) {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    height: 38px;
+  }
+
+  .view-header > :nth-child(2) button {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The title block is one line of eyebrow over one line of heading. */
+  .view-header > div:first-child {
+    align-content: start;
+    display: grid;
   }
 
   /* Reading a recipe: the detail page already has a back button and the title,
@@ -1852,9 +2739,52 @@ body.hide-nutrition .nutrition-only {
 
   .week-grid,
   .form-grid,
-  .macro-dashboard,
   .macro-row {
     grid-template-columns: 1fr;
+  }
+
+  .week-bar {
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .week-bar-meta {
+    gap: 10px;
+  }
+
+  .week-progress {
+    flex: 1 1 100%;
+    min-width: 0;
+    order: 2;
+  }
+
+  .week-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    order: 1;
+  }
+
+  .week-nav-label strong {
+    font-size: 0.95rem;
+  }
+
+  /* Day switching stays reachable while scrolling a day's meals. Full bleed
+     against main's padding so all seven days fit without cramping. */
+  .day-strip {
+    background: var(--surface);
+    box-shadow: 0 6px 8px -8px rgba(33, 32, 31, 0.35);
+    gap: 5px;
+    margin: 0 -12px;
+    padding: 8px 12px;
+    position: sticky;
+    top: calc(56px + env(safe-area-inset-top));
+    z-index: 10;
+  }
+
+  .day-pill {
+    min-height: 62px;
+    min-width: 44px;
+    padding: 7px 4px;
   }
 
   .macro-fieldset {
@@ -1929,6 +2859,51 @@ body.hide-nutrition .nutrition-only {
     line-height: 1;
   }
 
+  /* Seven bar items on a narrow phone: labels ellipsis rather than overflow. */
+  .tab-button > span:not(.tab-icon) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Sits in the middle of the bar and lifts above it, so logging a cooked meal is
+     always one thumb tap away. Fixed width so the tabs share what is left. */
+  .tab-action {
+    align-items: center;
+    align-self: center;
+    background: var(--accent);
+    border: 3px solid rgba(255, 253, 249, 0.96);
+    border-radius: 999px;
+    box-shadow: 0 6px 16px rgba(45, 106, 79, 0.4);
+    color: #fff;
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 1.9rem;
+    font-weight: 300;
+    height: 54px;
+    justify-content: center;
+    line-height: 1;
+    margin: -18px 4px 0;
+    padding: 0 0 4px;
+    width: 54px;
+  }
+
+  .tab-action:active {
+    transform: scale(0.94);
+  }
+
+  .tab-action:disabled {
+    background: var(--muted);
+    box-shadow: none;
+    opacity: 0.5;
+  }
+
+  .tab-action:focus-visible {
+    outline: 2px solid var(--accent-dark);
+    outline-offset: 3px;
+  }
+
   .grocery-grid {
     gap: 10px;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
@@ -1961,17 +2936,76 @@ body.hide-nutrition .nutrition-only {
     height: auto;
   }
 
+  /* The planner stacks a picker row and a week bar before any meal is visible,
+     so it reads far taller than the other pages. Tighten that whole run. */
+  #planner-view.view.active {
+    gap: 10px;
+  }
+
+  .planner-toolbar select,
+  .planner-toolbar > button {
+    min-height: 38px;
+  }
+
+  .week-bar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .week-bar-meta {
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .week-nav {
+    gap: 6px;
+  }
+
+  .week-nav .icon-button {
+    height: 34px;
+    width: 34px;
+  }
+
+  .week-nav-label strong {
+    font-size: 0.92rem;
+  }
+
+  .week-actions button {
+    min-height: 34px;
+    padding: 6px 10px;
+  }
+
   .planner-toolbar {
-    align-items: stretch;
-    display: grid;
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+  }
+
+  .planner-toolbar-field {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .planner-toolbar-field > span {
+    display: none;
   }
 
   .planner-toolbar select {
     max-width: none;
+    min-width: 0;
   }
 
-  .planner-toolbar button {
-    margin-left: 0;
+  .planner-toolbar > button {
+    flex: none;
+    padding: 10px 12px;
+  }
+
+  .wide-label {
+    display: none;
+  }
+
+  .narrow-label {
+    display: inline;
   }
 
   .recipe-step-row {
@@ -1997,10 +3031,133 @@ body.hide-nutrition .nutrition-only {
     display: grid;
   }
 
-  .recipe-page-actions,
+  /* One row like every other header, instead of stacking filter above button. */
   .recipe-editor-header-actions {
-    align-items: stretch;
-    display: grid;
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .recipe-editor-header-actions .filter-row {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .recipe-editor-header-actions .filter-row label {
+    display: none;
+  }
+
+  .recipe-editor-header-actions select {
+    width: 100%;
+  }
+
+  .recipe-editor-header-actions > button {
+    flex: none;
+  }
+
+  /* One readable column of nutrient rows rather than a cramped tile grid. */
+  .macro-group-rows {
+    gap: 8px;
+    grid-template-columns: 1fr;
+  }
+
+  .macro-dashboard {
+    gap: 14px;
+  }
+
+  .macro-summary {
+    padding: 12px 14px;
+  }
+
+  .macro-summary-headline strong {
+    font-size: 1.3rem;
+  }
+
+  .macro-progress {
+    gap: 5px;
+    padding: 9px 11px;
+  }
+
+  .macro-progress-name {
+    font-size: 0.88rem;
+  }
+
+  .macro-controls {
+    padding: 11px 12px;
+  }
+
+  .macro-control-row {
+    gap: 8px;
+    grid-template-columns: 1fr;
+  }
+
+  .macro-note {
+    font-size: 0.72rem;
+  }
+
+  /* Three items would crush at phone width, so the daily line wraps under. */
+  .macro-progress-foot {
+    flex-wrap: wrap;
+  }
+
+  .macro-progress-daily {
+    order: 3;
+    flex: 1 1 100%;
+    text-align: left;
+  }
+
+  /* Search and Add share one row instead of stacking two full-width blocks. */
+  .recipe-page-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .recipe-search {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Kept for screen readers; the placeholder carries it visually. */
+  .recipe-search > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .recipe-search input {
+    min-height: 38px;
+    width: 100%;
+  }
+
+  .recipe-page-actions .primary-button {
+    flex: none;
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+}
+
+/* Smallest phones: shrink the action so six tabs keep a usable label width. */
+@media (max-width: 360px) {
+  .tab-action {
+    font-size: 1.6rem;
+    height: 46px;
+    margin: -14px 2px 0;
+    width: 46px;
+  }
+
+  .tab-button {
+    font-size: 0.6rem;
+  }
+
+  /* Smaller heading so the longer page titles still fit without ellipsis. */
+  .view-header h2 {
+    font-size: 1.15rem;
   }
 }
 
@@ -2069,10 +3226,55 @@ body.hide-nutrition .nutrition-only {
   justify-content: flex-end;
 }
 
+/* Padding moves off the dialog and onto its parts, so the scrollport starts at
+   the border edge and the sticky title bar can pin flush to the top. */
 .settings-dialog {
   max-height: calc(100vh - 32px);
   max-width: 520px;
   overflow-y: auto;
+  padding: 0;
+}
+
+.settings-dialog .dialog-header {
+  background: var(--surface);
+  padding: 20px 24px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.settings-dialog > form {
+  padding: 0 24px 24px;
+}
+
+.dialog-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.dialog-close {
+  align-items: center;
+  background: var(--panel);
+  border: 0;
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  font-size: 1.5rem;
+  height: 34px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0 0 2px;
+  width: 34px;
+}
+
+.dialog-close:hover,
+.dialog-close:focus-visible {
+  background: #ece5db;
+  color: var(--accent-dark);
 }
 
 .settings-section {
@@ -2208,6 +3410,81 @@ body.hide-nutrition .nutrition-only {
 
 .planner-dialog h2 {
   margin: 0 0 4px;
+}
+
+.cook-dialog h2 {
+  margin: 0 0 4px;
+}
+
+.cook-search-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.cook-recipe-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(50vh, 380px);
+  overflow-y: auto;
+}
+
+.cook-recipe {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.cook-recipe:hover,
+.cook-recipe:focus-visible {
+  border-color: var(--accent);
+}
+
+.cook-recipe.is-ready {
+  border-color: var(--accent);
+}
+
+.cook-recipe-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cook-recipe-body strong {
+  overflow-wrap: anywhere;
+}
+
+.cook-recipe-meta {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.cook-recipe-stock {
+  background: #e6f0e9;
+  border-radius: 999px;
+  color: var(--accent-dark);
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.cook-recipe-stock.is-empty {
+  background: #f7f4ef;
+  color: var(--muted);
 }
 
 .create-planner-form {
