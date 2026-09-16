@@ -157,6 +157,15 @@ const measurementAliases = {
 
 const customServingUnit = "__other__";
 
+// How an ingredient is actually sold. The stored measure stays "container" so
+// existing recipes keep working; this only changes the word people read.
+const containerUnits = ["container", "can", "box", "bag", "bottle", "jar", "package", "carton", "pack", "jug", "tub", "bunch"];
+
+function containerUnit(source) {
+  const value = normalizeMeasurementUnit(source?.containerUnit);
+  return containerUnits.includes(value) ? value : "container";
+}
+
 const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
 
 const authEls = {
@@ -808,6 +817,28 @@ function showRecipeEditor(recipe = null) {
   activateAppView("recipe-editor", "recipes");
   if (recipe) fillRecipeForm(recipe);
   else resetRecipeForm();
+  resetRecipeFormSections();
+}
+
+// The editor form is long on a phone, so its builder sections start collapsed
+// there and stay open on wider screens where they all fit at once.
+function isNarrowLayout() {
+  return window.matchMedia("(max-width: 680px)").matches;
+}
+
+function setRecipeFormSection(section, open) {
+  if (!section) return;
+  section.dataset.open = String(open);
+  section.querySelector(".section-toggle")?.setAttribute("aria-expanded", String(open));
+}
+
+function resetRecipeFormSections() {
+  const open = !isNarrowLayout();
+  document.querySelectorAll("#recipe-form .recipe-form-section").forEach((section) => setRecipeFormSection(section, open));
+}
+
+function openRecipeFormSection(bodyId) {
+  setRecipeFormSection(document.getElementById(bodyId)?.closest(".recipe-form-section"), true);
 }
 
 function showRecipesView() {
@@ -1084,11 +1115,19 @@ function recipeCategories() {
   return [...new Set([...defaultRecipeCategories, ...used])].sort((a, b) => a.localeCompare(b));
 }
 
+// Meal slots are for meals: desserts stay out of the picker, except one that is
+// already planned so an existing week never loses its selection.
+const plannerExcludedCategories = new Set(["Dessert"]);
+
+function plannerRecipeOptionList(selectedId) {
+  return state.recipes.filter((recipe) => recipe.id === selectedId || !plannerExcludedCategories.has(recipe.category));
+}
+
 function recipeOptions(selectedId = "") {
   return [
     '<option value="">Choose a recipe</option>',
     `<option value="${TAKEOUT_PREFIX}" ${isTakeoutValue(selectedId) ? "selected" : ""}>Takeout</option>`,
-    ...state.recipes
+    ...plannerRecipeOptionList(selectedId)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((recipe) => `<option value="${recipe.id}" ${recipe.id === selectedId ? "selected" : ""}>${escapeHtml(recipe.name)}</option>`)
@@ -1572,12 +1611,16 @@ function normalizeMeasurementUnit(unit) {
 }
 
 // Word units read naturally in the plural ("2 eggs"); abbreviations never do ("2 g").
-const pluralizableUnits = new Set(["piece", "slice", "serving", "can", "package", "scoop", "clove", "egg", "cup", "container"]);
+const pluralizableUnits = new Set([
+  "piece", "slice", "serving", "can", "package", "scoop", "clove", "egg", "cup",
+  ...containerUnits
+]);
 
 function pluralizeUnit(unit, quantity) {
   const normalized = normalizeMeasurementUnit(unit);
   if (!normalized || !pluralizableUnits.has(normalized)) return normalized;
-  return roundTo(Number(quantity || 0), 2) === 1 ? normalized : `${normalized}s`;
+  if (roundTo(Number(quantity || 0), 2) === 1) return normalized;
+  return /(?:s|x|z|ch|sh)$/.test(normalized) ? `${normalized}es` : `${normalized}s`;
 }
 
 // "2 eggs Egg" reads badly: when the unit already names the ingredient, the name is redundant.
@@ -1646,8 +1689,8 @@ function recipeItemContainerCount(item, ingredient) {
   return item?.measure === "container" ? quantity : containersForServings(quantity, ingredient?.servingsPerContainer);
 }
 
-function formatContainers(containers) {
-  return amountParts(roundTo(containers, 2), "container").text;
+function formatContainers(containers, source) {
+  return amountParts(roundTo(containers, 2), containerUnit(source)).text;
 }
 
 function roundTo(value, places) {
@@ -1722,7 +1765,7 @@ function recipeIngredientAmount(item, ingredient) {
 function recipeIngredientAmountParts(item, ingredient) {
   const quantity = Number(item.quantity || 0);
   if (item.measure === "container") {
-    return amountParts(quantity, "container");
+    return amountParts(quantity, containerUnit(ingredient));
   }
   if (item.measure && item.measure !== "serving") {
     return amountParts(quantity, item.measure);
@@ -1796,7 +1839,7 @@ function renderGroceries() {
                 <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
                 ${stocked ? `<span class="grocery-card-stock">In kitchen: ${escapeHtml(kitchenStockAmountText(stocked))}</span>` : ""}
                 ${containers
-                  ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers))}</span>`
+                  ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers, ingredient))}</span>`
                   : ""}
               </div>
               <a class="grocery-card-link ${saved ? "is-product" : "is-search"}" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">
@@ -2612,7 +2655,7 @@ function ingredientTile(ingredient) {
       <strong>${escapeHtml(ingredient.name)}</strong>
       <span class="ingredient-tile-serving">${escapeHtml(formatAmountsInText(ingredient.serving))} per serving · ${formatQuantity(
         servingsPerContainer(ingredient)
-      )} per container</span>
+      )} per ${escapeHtml(containerUnit(ingredient))}</span>
       <span class="ingredient-tile-macros nutrition-only">${macros}</span>
     </span>`;
 
@@ -3090,8 +3133,20 @@ function setupForms() {
     setRecipePhotoMessage("Photo removed. Save the recipe to apply.");
     renderRecipePhotoPreview();
   });
-  document.getElementById("add-recipe-ingredient").addEventListener("click", () => addRecipeIngredientRow());
-  document.getElementById("add-recipe-step").addEventListener("click", () => addRecipeStepRow());
+  document.getElementById("add-recipe-ingredient").addEventListener("click", () => {
+    openRecipeFormSection("recipe-ingredients-body");
+    addRecipeIngredientRow();
+  });
+  document.getElementById("add-recipe-step").addEventListener("click", () => {
+    openRecipeFormSection("recipe-steps-body");
+    addRecipeStepRow();
+  });
+  document.querySelectorAll("#recipe-form .section-toggle").forEach((toggle) => {
+    toggle.addEventListener("click", () => {
+      const section = toggle.closest(".recipe-form-section");
+      setRecipeFormSection(section, section.dataset.open !== "true");
+    });
+  });
   document.getElementById("cancel-recipe-edit").addEventListener("click", resetRecipeForm);
   document.addEventListener("click", (event) => {
     if (event.target.closest(".ingredient-mention")) return;
@@ -3123,6 +3178,7 @@ function setupForms() {
       servingsPerContainer: servingsPerContainer({
         servingsPerContainer: parseFractionInput(document.getElementById("ingredient-servings-per-container").value)
       }),
+      containerUnit: containerUnit({ containerUnit: document.getElementById("ingredient-container-unit").value }),
       url: document.getElementById("ingredient-url").value.trim(),
       ...photo
     };
@@ -3474,7 +3530,9 @@ function fillRecipeForm(recipe) {
   document.getElementById("save-recipe").textContent = "Save changes";
   document.getElementById("cancel-recipe-edit").hidden = false;
   form.scrollIntoView({ behavior: "smooth", block: "start" });
-  document.getElementById("recipe-name").focus({ preventScroll: true });
+  // Focusing the name pops the keyboard open on a phone before the cook has
+  // even seen the recipe, so only wider layouts get the head start.
+  if (!isNarrowLayout()) document.getElementById("recipe-name").focus({ preventScroll: true });
 }
 
 function resetRecipeForm() {
@@ -3522,7 +3580,13 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
   const selected = selectedMeasure || "serving";
   const lead =
     optionMarkup("serving", `Serving${serving ? ` (${ingredient.serving})` : "(s)"}`, selected) +
-    optionMarkup("container", `Whole container${ingredient ? ` (${formatQuantity(servingsPerContainer(ingredient))} servings)` : "(s)"}`, selected);
+    optionMarkup(
+      "container",
+      ingredient
+        ? `Whole ${containerUnit(ingredient)} (${formatQuantity(servingsPerContainer(ingredient))} servings)`
+        : "Whole container(s)",
+      selected
+    );
 
   return unitOptionsMarkup({
     selected,
@@ -3627,14 +3691,16 @@ function addRecipeIngredientRow(item = {}) {
       </label>
       <div class="ingredient-picker-results" role="listbox" hidden></div>
     </div>
-    <label>
-      Quantity
-      <input class="recipe-ingredient-quantity" required type="text" inputmode="text" autocomplete="off" placeholder="1 1/2" value="${escapeHtml(formatQuantity(formValue.quantity))}" />
-    </label>
-    <label>
-      Unit
-      <select class="recipe-ingredient-measure" data-initial-measure="${escapeHtml(formValue.measure)}"></select>
-    </label>
+    <div class="recipe-ingredient-amount">
+      <label>
+        Quantity
+        <input class="recipe-ingredient-quantity" required type="text" inputmode="text" autocomplete="off" placeholder="1 1/2" value="${escapeHtml(formatQuantity(formValue.quantity))}" />
+      </label>
+      <label>
+        Unit
+        <select class="recipe-ingredient-measure" data-initial-measure="${escapeHtml(formValue.measure)}"></select>
+      </label>
+    </div>
     <span class="recipe-ingredient-serving">Choose an ingredient</span>
     <button class="danger-button" type="button">Remove</button>`;
 
@@ -3798,7 +3864,7 @@ function updateRecipeIngredientRow(row) {
   const servingCount = ingredient ? recipeItemServingCount({ quantity, measure }, ingredient) : 0;
   row.querySelector(".recipe-ingredient-serving").textContent = ingredient
     ? measure === "container"
-      ? `${formatQuantity(servingsPerContainer(ingredient))} servings per container`
+      ? `${formatQuantity(servingsPerContainer(ingredient))} servings per ${containerUnit(ingredient)}`
       : measure === "serving"
         ? `${ingredient.serving} per serving`
         : `${formatQuantity(quantity)} ${measure} = ${formatQuantity(roundTo(servingCount, 3))} servings`
@@ -3830,7 +3896,7 @@ function collectRecipeIngredients(allowIncomplete = false) {
     if (ingredient) {
       ingredients.push({ key: ingredient.key, quantity, measure });
     } else {
-      const unit = measure === "serving" ? "" : measure === "container" ? "container" : measure;
+      const unit = measure === "serving" ? "" : measure === "container" ? containerUnit(ingredient) : measure;
       const amount = amountParts(quantity, unit);
       const label = unitNamesIngredient(amount.unit, name) ? "" : name;
       ingredients.push(`${amount.text} ${label}`.replace(/\s+/g, " ").trim());
@@ -3869,11 +3935,25 @@ function refreshRecipeIngredientRows() {
   refreshRecipeMacroPreview();
 }
 
+function populateContainerUnits() {
+  const select = document.getElementById("ingredient-container-unit");
+  if (!select || select.options.length) return;
+  select.innerHTML = containerUnits.map((unit) => optionMarkup(unit, `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`, "container")).join("");
+  select.addEventListener("change", syncContainerUnitLabel);
+  syncContainerUnitLabel();
+}
+
+function syncContainerUnitLabel() {
+  const label = document.getElementById("ingredient-container-unit-label");
+  if (label) label.textContent = containerUnit({ containerUnit: document.getElementById("ingredient-container-unit")?.value });
+}
+
 function populateServingUnits() {
   const select = document.getElementById("ingredient-serving-unit");
   if (!select || select.options.length) return;
   select.innerHTML = unitOptionsMarkup({ selected: "g", includeOther: true });
   select.addEventListener("change", syncServingUnitCustom);
+  populateContainerUnits();
   bindQuantityInput(document.getElementById("ingredient-serving-amount"));
   bindQuantityInput(document.getElementById("ingredient-servings-per-container"));
   syncServingUnitCustom();
@@ -3938,6 +4018,8 @@ function fillIngredientForm(ingredient) {
     document.getElementById(nutrientInputId(nutrient)).value = roundTo(Number(ingredient[nutrient.key] || 0), 2);
   });
   document.getElementById("ingredient-servings-per-container").value = formatQuantity(servingsPerContainer(ingredient));
+  document.getElementById("ingredient-container-unit").value = containerUnit(ingredient);
+  syncContainerUnitLabel();
   document.getElementById("ingredient-url").value = ingredient.url;
   clearIngredientPhotoDraft();
   ingredientDraftImage = ingredientImage(ingredient);
@@ -3982,6 +4064,8 @@ function resetIngredientMacroInputs() {
     document.getElementById(nutrientInputId(nutrient)).value = 0;
   });
   document.getElementById("ingredient-servings-per-container").value = "1";
+  document.getElementById("ingredient-container-unit").value = "container";
+  syncContainerUnitLabel();
   setServingInputs("1 g");
 }
 

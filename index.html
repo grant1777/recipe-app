@@ -235,22 +235,43 @@
               </div>
             </div>
 
-            <div class="ingredient-builder">
+            <div class="ingredient-builder recipe-form-section" data-open="true">
               <div class="ingredient-builder-header">
-                <strong>Ingredients</strong>
+                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-ingredients-body">
+                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
+                  <span>Ingredients</span>
+                </button>
                 <button class="secondary-button" id="add-recipe-ingredient" type="button">Add ingredient</button>
               </div>
-              <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
-              <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
+              <div class="recipe-form-section-body" id="recipe-ingredients-body">
+                <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
+              </div>
             </div>
 
-            <div class="recipe-step-builder">
+            <div class="recipe-step-builder recipe-form-section" data-open="true">
               <div class="ingredient-builder-header">
-                <strong>Instructions</strong>
+                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-steps-body">
+                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
+                  <span>Instructions</span>
+                </button>
                 <button class="secondary-button" id="add-recipe-step" type="button">Add step</button>
               </div>
-              <p class="recipe-step-hint">Mention an ingredient by name to make its recipe amount interactive.</p>
-              <div class="recipe-step-rows" id="recipe-step-rows"></div>
+              <div class="recipe-form-section-body" id="recipe-steps-body">
+                <p class="recipe-step-hint">Mention an ingredient by name to make its recipe amount interactive.</p>
+                <div class="recipe-step-rows" id="recipe-step-rows"></div>
+              </div>
+            </div>
+
+            <div class="recipe-macro-builder recipe-form-section" data-open="true">
+              <div class="ingredient-builder-header">
+                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-macros-body">
+                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
+                  <span>Macros</span>
+                </button>
+              </div>
+              <div class="recipe-form-section-body" id="recipe-macros-body">
+                <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
+              </div>
             </div>
 
             <label>
@@ -304,7 +325,11 @@
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
               <label>
-                Servings per container
+                Sold as
+                <select id="ingredient-container-unit"></select>
+              </label>
+              <label>
+                Servings per <span id="ingredient-container-unit-label">container</span>
                 <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
               </label>
               <label>

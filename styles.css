@@ -1475,6 +1475,57 @@ body.hide-nutrition .nutrition-only {
   justify-content: space-between;
 }
 
+.section-toggle {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-weight: 800;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.section-toggle-chevron {
+  color: var(--muted);
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+}
+
+.recipe-form-section:not([data-open="true"]) .section-toggle-chevron {
+  transform: rotate(-90deg);
+}
+
+.recipe-form-section:not([data-open="true"]) .recipe-form-section-body {
+  display: none;
+}
+
+.recipe-form-section-body {
+  display: grid;
+  gap: 12px;
+}
+
+.section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.recipe-macro-builder {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+/* Quantity and unit share a cell on desktop only so the row keeps its
+   six-column grid; the wrapper becomes a real half/half grid when narrow. */
+.recipe-ingredient-amount {
+  display: contents;
+}
+
 .recipe-ingredient-rows {
   display: grid;
   gap: 8px;
@@ -1611,8 +1662,7 @@ body.hide-nutrition .nutrition-only {
 }
 
 .recipe-macro-preview {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
+  padding-top: 0;
 }
 
 .recipe-card {
@@ -2929,6 +2979,16 @@ body.hide-nutrition .nutrition-only {
 
   .recipe-ingredient-row > :not(.drag-handle) {
     grid-column: 2;
+  }
+
+  .recipe-ingredient-amount {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .recipe-ingredient-amount > label {
+    min-width: 0;
   }
 
   .recipe-ingredient-row .drag-handle {
