@@ -1087,15 +1087,10 @@ function optionMarkup(value, label, selected = "", extra = "") {
   return `<option value="${escapeHtml(value)}"${String(selected) === String(value) ? " selected" : ""}${extra}>${escapeHtml(label)}</option>`;
 }
 
-function unitOptionsMarkup({ selected = "", lead = "", compatibleWith = "", extraUnit = "", includeOther = false } = {}) {
+function unitOptionsMarkup({ selected = "", lead = "", extraUnit = "", includeOther = false } = {}) {
   const groups = servingUnits
     .map((section) => {
-      const options = section.units
-        .map((unit) => {
-          const usable = !compatibleWith || measurementIsCompatible(unit, compatibleWith);
-          return optionMarkup(unit, unit, selected, usable ? "" : " disabled");
-        })
-        .join("");
+      const options = section.units.map((unit) => optionMarkup(unit, unit, selected)).join("");
       return `<optgroup label="${escapeHtml(section.group)}">${options}</optgroup>`;
     })
     .join("");
@@ -3641,8 +3636,6 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
   return unitOptionsMarkup({
     selected,
     lead,
-    // Units that cannot convert to this ingredient's serving stay visible but unpickable.
-    compatibleWith: serving?.unit,
     extraUnit: serving?.unit
   });
 }
@@ -3905,9 +3898,7 @@ function updateRecipeIngredientRow(row) {
   const requestedMeasure = select.dataset.initialMeasure || select.value || "serving";
   delete select.dataset.initialMeasure;
   const serving = ingredient ? parseServing(ingredient.serving) : null;
-  const measure = requestedMeasure === "serving" || requestedMeasure === "container" || !serving || measurementIsCompatible(requestedMeasure, serving.unit)
-    ? requestedMeasure
-    : "serving";
+  const measure = requestedMeasure;
   select.innerHTML = recipeMeasurementOptions(ingredient, measure);
   select.value = measure;
   const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
@@ -3917,7 +3908,10 @@ function updateRecipeIngredientRow(row) {
       ? `${formatQuantity(servingsPerContainer(ingredient))} servings per ${containerUnit(ingredient)}`
       : measure === "serving"
         ? `${ingredient.serving} per serving`
-        : `${formatQuantity(quantity)} ${measure} = ${formatQuantity(roundTo(servingCount, 3))} servings`
+        : serving?.unit && !measurementIsCompatible(measure, serving.unit)
+          // No conversion between e.g. "piece" and "g", so each one counts as a serving.
+          ? `${formatQuantity(quantity)} ${measure} counted as ${formatQuantity(roundTo(servingCount, 3))} servings (can't convert to ${serving.unit})`
+          : `${formatQuantity(quantity)} ${measure} = ${formatQuantity(roundTo(servingCount, 3))} servings`
     : name.trim()
       ? "Manual ingredient - nutrition unavailable"
       : "Choose an ingredient";
