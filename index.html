@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css?v=20260901-33" />
+    <link rel="stylesheet" href="styles.css?v=20261007-35" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -376,6 +376,30 @@
             </div>
           </div>
 
+          <details class="recipe-import" id="stock-receipt-import">
+            <summary>Import a Walmart email receipt</summary>
+            <div class="recipe-import-body">
+              <p>Paste the item list from your final Walmart receipt, or choose a saved email (.eml), HTML, or text file.</p>
+              <label class="recipe-import-label" for="stock-receipt-source">
+                Receipt
+                <textarea id="stock-receipt-source" placeholder="Paste your Walmart receipt here" maxlength="1000000"></textarea>
+              </label>
+              <div class="recipe-import-actions">
+                <label class="secondary-button file-button" for="stock-receipt-file">Choose receipt file</label>
+                <input id="stock-receipt-file" type="file" accept=".eml,.html,.htm,.txt,text/plain,text/html,message/rfc822" />
+                <button class="primary-button" id="stock-receipt-read" type="button">Find items</button>
+                <button class="text-button" id="stock-receipt-clear" type="button">Clear</button>
+              </div>
+              <p class="recipe-import-message" id="stock-receipt-message" role="status" aria-live="polite"></p>
+              <form id="stock-receipt-review" hidden>
+                <p>Review what you received. Amounts start as purchased packages. To use an ingredient from your index, choose its name and set the amount and unit to match what you bought.</p>
+                <datalist id="stock-receipt-ingredients"></datalist>
+                <div id="stock-receipt-items"></div>
+                <button class="primary-button" id="stock-receipt-add" type="submit">Add selected items to stock</button>
+              </form>
+            </div>
+          </details>
+
           <form class="recipe-form" id="kitchen-stock-form">
             <div class="form-grid kitchen-stock-form-grid">
               <div class="ingredient-picker">
@@ -591,6 +615,7 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="app.js?v=20260901-33"></script>
+    <script src="receipt-import.js?v=20261007-35"></script>
+    <script src="app.js?v=20261007-35"></script>
   </body>
 </html>

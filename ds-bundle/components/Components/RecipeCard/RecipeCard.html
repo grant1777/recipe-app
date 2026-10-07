@@ -1,0 +1,40 @@
+<!-- @dsCard group="Components" -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+  <link rel="stylesheet" href="../../../styles.css">
+  <style>
+    body{margin:0;padding:24px;background:var(--surface)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;max-width:760px}
+  </style>
+</head><body>
+<div class="grid">
+  <div class="recipe-catalogue-card">
+    <span class="recipe-catalogue-visual" aria-hidden="true">K</span>
+    <span class="recipe-unlinked-alert" role="img" aria-label="2 ingredients not in your ingredient list">!</span>
+    <span class="recipe-catalogue-body">
+      <span class="recipe-catalogue-tags"><span class="category-pill">Dinner</span><span class="stock-pill">6 of 10 in stock</span></span>
+      <strong>KFC Bowl</strong>
+      <span>10 ingredients · 3 steps · Serves 4</span>
+    </span>
+    <span class="recipe-catalogue-open">View recipe →</span>
+  </div>
+  <div class="recipe-catalogue-card is-ready">
+    <span class="recipe-catalogue-visual" aria-hidden="true">S</span>
+    <span class="recipe-catalogue-body">
+      <span class="recipe-catalogue-tags"><span class="category-pill">Drink</span><span class="stock-pill is-ready">✓ Can make now</span></span>
+      <strong>Strawberry Smoothie</strong>
+      <span>4 ingredients · 2 steps · Serves 2</span>
+    </span>
+    <span class="recipe-catalogue-open">View recipe →</span>
+  </div>
+  <div class="recipe-catalogue-card">
+    <span class="recipe-catalogue-visual" aria-hidden="true">P</span>
+    <span class="recipe-catalogue-body">
+      <span class="recipe-catalogue-tags"><span class="category-pill">Breakfast</span></span>
+      <strong>Pancakes</strong>
+      <span>6 ingredients · 4 steps · Serves 4</span>
+    </span>
+    <span class="recipe-catalogue-open">View recipe →</span>
+  </div>
+</div>
+</body></html>

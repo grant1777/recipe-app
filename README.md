@@ -45,3 +45,35 @@ The membership rules in `firestore.rules` allow users to access only a household
 The Ingredients tab stores each ingredient's serving size, macros, and preferred Walmart product URL. Recipe ingredient rows search this index and calculate recipe and weekly macros automatically. The grocery list uses saved Walmart links and falls back to Walmart search for ingredients from older recipes.
 
 Walmart does not currently provide a simple public consumer API for writing directly to a shopper's native Walmart List from a static GitHub Pages app.
+
+## Walmart receipt import
+
+In **Kitchen stock**, open **Import a Walmart email receipt**. Paste the final
+receipt's item list or choose a saved `.eml`, `.html`, or `.txt` file, then choose
+**Find items**. Review the detected items, uncheck anything not received, and
+choose **Add selected items to stock**. Parsing happens in your browser; the
+receipt body and email headers are not saved to Firebase.
+
+Amounts start as purchased packages, not servings or ounces. To link a purchase
+to an existing ingredient, choose its name from the suggestions and adjust the
+amount and unit. Compatible amounts are added to existing stock. Incompatible
+units must be corrected before the import can be saved. Unrecognized receipt
+layouts can be pasted as product name, `Qty 2`, and price on separate lines.
+
+Imports are saved atomically and checked against the household's last 200
+receipt imports. Receipts with an order number are recognized across formatting
+changes; otherwise the normalized receipt text identifies a repeat. Use the final
+received-item receipt, since order confirmations may include unavailable items.
+
+Run the receipt parser and stock merge checks with `npm test`.
+
+## Recipe photos
+
+The 11 dinner recipes identified in the catalogue use local fallback photos in
+`assets/recipe-photos/` when no uploaded photo is present. Matching ignores case,
+extra spaces, and `&` versus `and`. Uploaded photos take priority, and editing a
+recipe does not copy its fallback photo into Firebase. Photos illustrate similar
+dishes and may differ from the saved recipe's ingredients.
+
+`assets/recipe-photos/sources.json` records the original recipe pages and image
+URLs from Spend With Pennies, HelloFresh, Eating on a Dime, and RecipeTin Eats.

@@ -12,6 +12,21 @@ const ACCESS_ADMIN_UID = "7OaNUgKTq6UVOc5pikdPiFTou0t2";
 const FIRESTORE_DOC_LIMIT = 1000000;
 const FIRESTORE_DOC_WARNING = 800000;
 const firebaseConfig = window.firebaseConfig;
+// Local photos for recipes without an uploaded image. Provenance is recorded in
+// assets/recipe-photos/sources.json; uploaded photos always take priority.
+const recipeFallbackPhotos = new Map([
+  ["beef and broccoli", "beef-and-broccoli"],
+  ["buffalo chicken dip", "buffalo-chicken-dip"],
+  ["chicken and dressing", "chicken-and-dressing"],
+  ["chicken and dumplings", "chicken-and-dumplings"],
+  ["chicken and queso rice", "chicken-and-queso-rice"],
+  ["chicken parmesan", "chicken-parmesan"],
+  ["fake carbonara", "fake-carbonara"],
+  ["kfc bowl", "kfc-bowl"],
+  ["potato soup", "potato-soup"],
+  ["taco bowls", "taco-bowls"],
+  ["thai curry", "thai-curry"]
+]);
 
 const starterRecipes = [
   {
@@ -251,6 +266,7 @@ function createInitialState() {
     recipes: starterRecipes,
     ingredients: {},
     kitchenStock: {},
+    stockReceiptImports: [],
     nutrition: defaultNutritionSettings(),
     planners: {}
   };
@@ -261,6 +277,7 @@ function createSignedOutState() {
     recipes: [],
     ingredients: {},
     kitchenStock: {},
+    stockReceiptImports: [],
     nutrition: defaultNutritionSettings(),
     planners: {}
   };
@@ -275,6 +292,7 @@ function normalizeState(value) {
     planners: normalizePlanners(value?.planners, legacyPlans, Boolean(value?.plan || Object.keys(legacyPlans).length)),
     ingredients: normalizeIngredientCatalog(ingredientSource),
     kitchenStock: normalizeKitchenStock(value?.kitchenStock),
+    stockReceiptImports: Array.isArray(value?.stockReceiptImports) ? value.stockReceiptImports.filter(id => typeof id === "string" && id.length <= 150).slice(-200) : [],
     nutrition: normalizeNutritionSettings(value?.nutrition, value?.macroPeople)
   };
 
@@ -460,6 +478,7 @@ async function initializeCloud() {
       getDoc: firestoreModule.getDoc,
       setDoc: firestoreModule.setDoc,
       updateDoc: firestoreModule.updateDoc,
+      runTransaction: firestoreModule.runTransaction,
       onSnapshot: firestoreModule.onSnapshot,
       onAuthStateChanged: authModule.onAuthStateChanged,
       GithubAuthProvider: authModule.GithubAuthProvider,
@@ -687,6 +706,7 @@ async function saveCloudState(errorPrefix = "Firestore save failed") {
       recipes: state.recipes,
       ingredients: state.ingredients,
       kitchenStock: state.kitchenStock,
+      stockReceiptImports: state.stockReceiptImports,
       nutrition: state.nutrition,
       planners: state.planners
     });
@@ -795,6 +815,21 @@ function plannedSlotValues() {
 
 function plannedRecipes() {
   return plannedSlotValues()
+    .filter((value) => !isTakeoutValue(value))
+    .map(recipeById)
+    .filter(Boolean);
+}
+
+// Groceries aren't capped by the selected week: every meal planned from the
+// current week onward is shopped for. Past weeks are left out so old plans
+// don't pile up on the list. Week keys are YYYY-MM-DD, so they sort as strings.
+function upcomingPlannedRecipes() {
+  const planner = ensureActivePlanner();
+  if (!planner) return [];
+  const thisWeekKey = dateKey(getWeekStart(new Date()));
+  return Object.entries(planner.plans)
+    .filter(([weekKey]) => weekKey >= thisWeekKey)
+    .flatMap(([, plan]) => days.flatMap((day) => meals.map((meal) => plan[day]?.[meal]).filter(Boolean)))
     .filter((value) => !isTakeoutValue(value))
     .map(recipeById)
     .filter(Boolean);
@@ -1823,7 +1858,7 @@ function formatMacro(value) {
 
 function renderGroceries() {
   const groceries = new Map();
-  plannedRecipes().forEach((recipe) => {
+  upcomingPlannedRecipes().forEach((recipe) => {
     recipe.ingredients.forEach((ingredient) => {
       const parsed = parseRecipeIngredient(ingredient);
       if (!parsed) return;
@@ -1845,7 +1880,7 @@ function renderGroceries() {
 
   const groceryList = document.getElementById("grocery-list");
   if (!groceries.size) {
-    groceryList.innerHTML = '<p class="empty-state">Plan meals for this week and your grocery list will appear here.</p>';
+    groceryList.innerHTML = '<p class="empty-state">Plan meals for this week or later and your grocery list will appear here.</p>';
     return;
   }
 
@@ -2416,6 +2451,187 @@ function undoStockDeduction() {
   saveState();
   renderAll();
   setAuthMessage("Kitchen stock restored.");
+}
+
+// Read the latest stock and record the receipt in the same commit, so retries
+// and concurrent receipt imports cannot add the same purchase twice.
+async function saveStockReceipt(receiptId, rows, householdId) {
+  const ref = cloud.doc(cloud.db, "households", householdId);
+  return cloud.runTransaction(cloud.db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("This household no longer exists.");
+    const household = snapshot.data();
+    const imports = Array.isArray(household.stockReceiptImports) ? household.stockReceiptImports : [];
+    if (imports.includes(receiptId)) throw new Error("This receipt has already been added to kitchen stock.");
+    const catalog = normalizeIngredientCatalog(household.ingredients);
+    const kitchenStock = WalmartReceipt.mergeStock(
+      normalizeKitchenStock(household.kitchenStock), rows,
+      name => catalog[ingredientKey(name)], convertMeasurement, new Date().toISOString()
+    );
+    const stockReceiptImports = [...imports, receiptId].slice(-200);
+    if (new Blob([JSON.stringify({ ...household, kitchenStock, stockReceiptImports })]).size > FIRESTORE_DOC_LIMIT) {
+      throw new Error("This household is full. Remove some old data before importing this receipt.");
+    }
+    transaction.update(ref, { kitchenStock, stockReceiptImports });
+    return { kitchenStock, stockReceiptImports };
+  });
+}
+
+function setupStockReceiptImport() {
+  const source = document.getElementById("stock-receipt-source");
+  const file = document.getElementById("stock-receipt-file");
+  const review = document.getElementById("stock-receipt-review");
+  const items = document.getElementById("stock-receipt-items");
+  const message = document.getElementById("stock-receipt-message");
+  const importer = document.getElementById("stock-receipt-import");
+  let receiptId = "";
+  let reviewedHouseholdId = "";
+  let busy = false;
+  let revision = 0;
+  const invalidate = () => {
+    revision++;
+    receiptId = "";
+    reviewedHouseholdId = "";
+    review.hidden = true;
+    items.replaceChildren();
+    message.textContent = "";
+  };
+  const setBusy = (value) => {
+    busy = value;
+    importer.querySelectorAll("input, textarea, select, button").forEach(element => {
+      element.disabled = value || !canWriteCloudData();
+    });
+    importer.setAttribute("aria-busy", String(value));
+  };
+  source.addEventListener("input", invalidate);
+  source.addEventListener("paste", event => {
+    const html = event.clipboardData?.getData("text/html");
+    if (!html) return;
+    try {
+      const text = WalmartReceipt.toText(html);
+      if (text.length > 1000000) throw new Error("That receipt is too large. Paste just the purchased item list.");
+      event.preventDefault();
+      source.setRangeText(text, source.selectionStart, source.selectionEnd, "end");
+      invalidate();
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  });
+  file.addEventListener("change", async () => {
+    if (busy || !file.files[0]) return;
+    invalidate();
+    const selected = file.files[0];
+    if (!/\.(eml|html?|txt)$/i.test(selected.name)) {
+      message.textContent = "Choose an .eml, .html, or .txt file, or paste the receipt text.";
+      return;
+    }
+    if (selected.size > 1000000) {
+      message.textContent = "That file is too large. Paste just the purchased item list (up to 1 MB).";
+      return;
+    }
+    setBusy(true);
+    try {
+      source.value = WalmartReceipt.toText(await selected.text());
+      message.textContent = "Receipt loaded. Choose Find items to review it.";
+    } catch (error) {
+      message.textContent = "Could not read that receipt: " + error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
+  document.getElementById("stock-receipt-clear").addEventListener("click", () => {
+    if (busy) return;
+    source.value = "";
+    file.value = "";
+    invalidate();
+  });
+  document.getElementById("stock-receipt-read").addEventListener("click", async () => {
+    if (busy || !requireCloudWrite()) return;
+    invalidate();
+    const readRevision = revision;
+    setBusy(true);
+    try {
+      if (source.value.length > 1000000) throw new Error("Paste just the purchased item list (up to 1 MB).");
+      const text = WalmartReceipt.toText(source.value);
+      if (!text.trim()) throw new Error("Paste or choose a Walmart receipt first.");
+      const rows = WalmartReceipt.parse(text);
+      if (!rows.length) throw new Error("No items found. Copy the receipt's item list including prices and Qty lines, then try again.");
+      if (rows.length > 300) throw new Error("This receipt has too many items. Import up to 300 items at a time.");
+      const order = text.match(/\border\s*(?:number|no\.?|#|id)\s*[:#]?\s*([\d-]{8,})\b/i);
+      const readHouseholdId = currentHouseholdId;
+      const identity = order ? `walmart-order:${order[1]}` : text.toLowerCase().replace(/\s+/g, " ").trim();
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
+      if (readRevision !== revision || readHouseholdId !== currentHouseholdId) return;
+      receiptId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      if (state.stockReceiptImports.includes(receiptId)) throw new Error("This receipt has already been added to kitchen stock.");
+      reviewedHouseholdId = readHouseholdId;
+      document.getElementById("stock-receipt-ingredients").innerHTML = Object.values(state.ingredients).map(item => optionMarkup(item.name, item.name)).join("");
+      items.innerHTML = rows.map((row, index) => `
+        <div class="stock-receipt-row">
+          <input class="stock-receipt-selected" type="checkbox" aria-label="Include ${escapeHtml(row.name)}"${row.selected ? " checked" : ""} />
+          <label class="stock-receipt-name">Item
+            <input class="stock-receipt-item-name" list="stock-receipt-ingredients" maxlength="250" value="${escapeHtml(row.name)}" aria-label="Item ${index + 1}" />
+            <small>${escapeHtml(row.warning || row.name)}</small>
+          </label>
+          <label class="stock-receipt-amount">Amount
+            <input class="stock-receipt-quantity" type="text" inputmode="decimal" value="${escapeHtml(row.quantity)}" aria-label="Amount for item ${index + 1}" />
+          </label>
+          <label>Unit
+            <select class="stock-receipt-unit" aria-label="Unit for item ${index + 1}">${unitOptionsMarkup({ selected: row.unit })}</select>
+          </label>
+        </div>`).join("");
+      items.querySelectorAll(".stock-receipt-quantity").forEach(bindQuantityInput);
+      review.hidden = false;
+      message.textContent = `Found ${rows.length} items. Review the names, amounts, and units, and uncheck anything you did not receive or do not keep in your kitchen.`;
+    } catch (error) {
+      receiptId = "";
+      message.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
+  review.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (busy || !requireCloudWrite() || !receiptId) return;
+    if (reviewedHouseholdId !== currentHouseholdId) {
+      invalidate();
+      message.textContent = "Your household changed. Choose Find items to review this receipt again.";
+      return;
+    }
+    if (state.stockReceiptImports.includes(receiptId)) {
+      message.textContent = "This receipt has already been added to kitchen stock.";
+      return;
+    }
+    try {
+      const rows = [...items.querySelectorAll(".stock-receipt-row")].filter(row => row.querySelector(".stock-receipt-selected").checked).map(row => {
+        const input = row.querySelector(".stock-receipt-quantity");
+        if (!isValidQuantityInput(input.value)) throw new Error("Use a whole number, decimal, or fraction for each selected amount.");
+        return { name: row.querySelector(".stock-receipt-item-name").value.trim(), quantity: parseFractionInput(input.value), unit: normalizeMeasurementUnit(row.querySelector(".stock-receipt-unit").value) };
+      });
+      if (!rows.length) throw new Error("Select at least one item to add.");
+      const householdId = currentHouseholdId;
+      setBusy(true);
+      message.textContent = "Adding receipt items to kitchen stock...";
+      const saved = await saveStockReceipt(receiptId, rows, householdId);
+      if (currentHouseholdId !== householdId) {
+        invalidate();
+        return;
+      }
+      state.kitchenStock = saved.kitchenStock;
+      state.stockReceiptImports = saved.stockReceiptImports;
+      lastStockDeduction = null;
+      source.value = "";
+      file.value = "";
+      invalidate();
+      renderAll();
+      message.textContent = `Added ${rows.length} items to kitchen stock. Existing amounts were increased.`;
+      setAuthMessage("Walmart receipt items saved to Firebase.");
+    } catch (error) {
+      message.textContent = error.message;
+    } finally {
+      setBusy(false);
+    }
+  });
 }
 
 // The mobile "+" in the tab bar: pick what you cooked and it comes off the stock.
@@ -3558,7 +3774,7 @@ function fillRecipeForm(recipe) {
   document.getElementById("recipe-notes").value = recipe.notes || "";
   clearRecipePhotoDraft();
   recipeDraftNutrition = null;
-  recipeDraftImage = recipeImage(recipe);
+  recipeDraftImage = safeImageUrl(recipe.image);
   document.getElementById("recipe-photo").value = "";
   setRecipePhotoMessage(recipeDraftImage ? "Photo attached." : OPTIONAL_PHOTO_MESSAGE);
   renderRecipePhotoPreview();
@@ -4735,7 +4951,11 @@ function safeImageUrl(value) {
 }
 
 function recipeImage(recipe) {
-  return safeImageUrl(recipe?.image);
+  const uploaded = safeImageUrl(recipe?.image);
+  if (uploaded) return uploaded;
+  const name = String(recipe?.name || "").trim().toLowerCase().replace(/&/g, " and ").replace(/\s+/g, " ");
+  const fallback = recipeFallbackPhotos.get(name);
+  return fallback ? `assets/recipe-photos/${fallback}.jpg` : "";
 }
 
 function ingredientImage(ingredient) {
@@ -5093,6 +5313,10 @@ function updateDataControls() {
     "#kitchen-stock-form input",
     "#kitchen-stock-form select",
     "#kitchen-stock-form button",
+    "#stock-receipt-import input",
+    "#stock-receipt-import textarea",
+    "#stock-receipt-import select",
+    "#stock-receipt-import button",
     "#macro-people",
     "#macro-calories",
     "#macro-profile",
@@ -5117,7 +5341,8 @@ function updateDataControls() {
 
   document.querySelectorAll(selectors.join(",")).forEach((element) => {
     const needsPlanner = element.matches("#week-grid select, #clear-week");
-    element.disabled = disabled || (needsPlanner && !activePlanner());
+    const receiptBusy = element.closest("#stock-receipt-import")?.getAttribute("aria-busy") === "true";
+    element.disabled = disabled || receiptBusy || (needsPlanner && !activePlanner());
   });
 }
 
@@ -5147,6 +5372,7 @@ setupCookDialog();
 setupPlannerLayout();
 setupForms();
 setupRecipeImport();
+setupStockReceiptImport();
 setupAuth();
 renderAll();
 initializeCloud();

@@ -1,0 +1,152 @@
+/* Recipe Planner design system: tokens plus the app's reusable element classes.
+   Class names match the app's own styles.css so designs map 1:1 onto its markup. */
+@import url("tokens/colors.css");
+@import url("tokens/typography.css");
+@import url("tokens/shape.css");
+
+body {
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  margin: 0;
+}
+
+* { box-sizing: border-box; }
+
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+
+/* Section kicker above a title. */
+.eyebrow {
+  color: var(--gold);
+  font-size: 0.76rem;
+  font-weight: var(--weight-heavy);
+  letter-spacing: var(--tracking-eyebrow);
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+/* Buttons */
+.primary-button,
+.secondary-button,
+.light-button,
+.danger-button {
+  border: 0;
+  border-radius: var(--radius-md);
+  font-weight: var(--weight-heavy);
+  min-height: var(--control-height);
+  padding: 10px 14px;
+}
+.primary-button { background: var(--accent); color: #fff; }
+.primary-button:hover { background: var(--accent-dark); }
+.secondary-button { background: var(--sand); color: var(--sand-ink); }
+.secondary-button:hover { background: var(--sand-hover); }
+.light-button { background: var(--on-forest); color: var(--forest); }
+.light-button:hover { background: var(--sand); }
+.danger-button { background: var(--danger-soft); color: var(--danger-ink); }
+.text-button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  min-height: var(--control-height);
+  text-decoration: underline;
+}
+
+/* Form fields */
+.field {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.84rem;
+  font-weight: var(--weight-heavy);
+  gap: 6px;
+}
+select, input, textarea {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  min-height: var(--control-height);
+  padding: 10px;
+  width: 100%;
+}
+textarea { min-height: 86px; resize: vertical; }
+
+/* Pills and badges */
+.category-pill,
+.stock-pill {
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  font-weight: var(--weight-heavy);
+  padding: 5px 9px;
+  white-space: nowrap;
+  width: fit-content;
+}
+.category-pill { background: var(--panel); color: var(--pill-ink); font-size: var(--text-sm); }
+.stock-pill { background: var(--panel-soft); color: var(--muted); font-size: var(--text-xs); }
+.stock-pill.is-ready { background: var(--accent-soft); color: var(--accent-dark); }
+
+/* Amount chip inside ingredient lists: "1 tbsp" */
+.ingredient-measure {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  color: var(--accent-dark);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-heavy);
+  margin-right: 3px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Round "needs attention" badge, e.g. an ingredient missing from the index. */
+.recipe-unlinked-alert {
+  align-items: center;
+  background: var(--gold);
+  border: 2px solid #fff;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 2px 6px rgba(62, 48, 35, 0.25);
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.85rem;
+  font-weight: var(--weight-black);
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+/* Recipe tile */
+.recipe-catalogue-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  display: grid;
+  overflow: hidden;
+  position: relative;
+  text-align: left;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.recipe-catalogue-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.recipe-catalogue-card.is-ready {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-ready);
+}
+.recipe-catalogue-card .recipe-unlinked-alert { position: absolute; right: 10px; top: 10px; }
+.recipe-catalogue-visual {
+  align-items: center;
+  background: linear-gradient(135deg, #d8e6dc, #f1dfbd);
+  color: #385246;
+  display: flex;
+  font-size: 4rem;
+  font-weight: var(--weight-black);
+  justify-content: center;
+  min-height: 140px;
+}
+.recipe-catalogue-body { align-content: start; display: grid; gap: 8px; min-width: 0; padding: 16px 16px 8px; }
+.recipe-catalogue-body strong { font-size: var(--text-lg); line-height: 1.25; overflow-wrap: anywhere; }
+.recipe-catalogue-body > span:last-child { color: var(--muted); font-size: 0.78rem; }
+.recipe-catalogue-tags { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.recipe-catalogue-open { align-self: end; color: var(--accent); font-size: 0.78rem; font-weight: var(--weight-heavy); padding: 8px 16px 16px; }

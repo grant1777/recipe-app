@@ -1,0 +1,30 @@
+/* Colour tokens. The first block is the app's own :root palette (styles.css);
+   the second names the literal hex values the app reuses most, so new designs
+   can reach them by name instead of copying hex. */
+:root {
+  color-scheme: light;
+  --ink: #21201f;
+  --muted: #6f6861;
+  --line: #ddd5cc;
+  --surface: #fffdf9;
+  --panel: #f4efe8;
+  --accent: #2d6a4f;
+  --accent-dark: #1f513b;
+  --gold: #b66b22;
+  --rose: #a23e48;
+  --sky: #386c8f;
+
+  --card: #ffffff;
+  --panel-soft: #f7f4ef;
+  --accent-soft: #e6f0e9;
+  --sand: #eadfce;
+  --sand-hover: #decfb9;
+  --sand-ink: #473d34;
+  --pill-ink: #5d5148;
+  --forest: #26352f;
+  --on-forest: #fbfaf7;
+  --on-forest-muted: #d7cfc4;
+  --danger-soft: #f5dfd7;
+  --danger-ink: #8f2d20;
+  --border-hover: #bd9f78;
+}

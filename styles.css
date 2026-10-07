@@ -2216,6 +2216,62 @@ body.hide-nutrition .nutrition-only {
   gap: 10px;
 }
 
+#stock-receipt-source {
+  min-height: 150px;
+}
+
+#stock-receipt-file {
+  max-width: 100%;
+}
+
+#stock-receipt-review > p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.stock-receipt-row {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(90px, 120px) minmax(100px, 140px);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.stock-receipt-row label {
+  display: grid;
+  gap: 6px;
+}
+
+.stock-receipt-row input[type="checkbox"] {
+  width: 20px;
+  min-height: 20px;
+  margin-top: 26px;
+}
+
+.stock-receipt-row small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+#stock-receipt-add {
+  margin-top: 16px;
+}
+
+@media (max-width: 600px) {
+  .stock-receipt-row {
+    grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .stock-receipt-row .stock-receipt-name {
+    grid-column: 2 / -1;
+  }
+
+  .stock-receipt-row .stock-receipt-amount {
+    grid-column: 2;
+  }
+}
+
 .kitchen-stock-tile .ingredient-tile-body {
   padding-bottom: 12px;
 }
