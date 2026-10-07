@@ -4398,6 +4398,7 @@ function setupAuth() {
   });
   document.getElementById("open-profile").addEventListener("click", openProfileDialog);
   document.getElementById("mobile-open-settings").addEventListener("click", openProfileDialog);
+  document.getElementById("sidebar-open-settings").addEventListener("click", openProfileDialog);
   document.getElementById("cancel-profile").addEventListener("click", () => authEls.profileDialog.close());
   document.getElementById("close-profile-dialog").addEventListener("click", () => authEls.profileDialog.close());
   document.getElementById("save-profile").addEventListener("click", saveProfile);
@@ -4414,6 +4415,11 @@ function setupAuth() {
   });
   document.getElementById("sign-out").addEventListener("click", async () => {
     if (!cloud) return;
+    await cloud.signOut(cloud.auth);
+  });
+  document.getElementById("settings-sign-out").addEventListener("click", async () => {
+    if (!cloud) return;
+    authEls.profileDialog.close();
     await cloud.signOut(cloud.auth);
   });
   document.getElementById("setup-sign-out").addEventListener("click", async () => {
@@ -4684,7 +4690,15 @@ function createMemberPlaceholder(text) {
   return item;
 }
 
+// The avatar in the app header doubles as the settings button.
+function renderCurrentMemberAvatars() {
+  const user = cloud?.auth.currentUser;
+  const member = currentMember() || { displayName: user?.displayName || "", photoUrl: "" };
+  document.querySelectorAll("[data-current-member-avatar]").forEach((element) => applyAvatar(element, member));
+}
+
 function renderHouseholdMembers() {
+  renderCurrentMemberAvatars();
   if (!authEls.householdMembersList) return;
 
   if (!householdMembers.length) {

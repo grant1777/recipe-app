@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
-    <link rel="stylesheet" href="styles.css?v=20261007-35" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20261007-36" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -47,22 +50,23 @@
     <div class="app-shell" id="app-shell" hidden>
       <header class="mobile-app-header">
         <strong>Recipe Planner</strong>
-        <button class="mobile-settings-button" id="mobile-open-settings" type="button" aria-label="Open settings" title="Settings"><span aria-hidden="true">⚙</span></button>
+        <button class="mobile-settings-button" id="mobile-open-settings" type="button" aria-label="Open settings" title="Settings"><span class="member-avatar header-avatar" data-current-member-avatar aria-hidden="true"></span></button>
       </header>
       <aside class="sidebar" aria-label="App navigation">
-        <div>
+        <div class="sidebar-brand">
           <p class="eyebrow">Household</p>
           <h1>Recipe Planner</h1>
         </div>
         <nav class="tabs" aria-label="Primary">
-          <button class="tab-button active" data-tab="planner" type="button"><span class="tab-icon" aria-hidden="true">🗓️</span><span>Planner</span></button>
+          <button class="tab-button active" data-tab="planner" type="button"><span class="tab-icon" aria-hidden="true">🗓️</span><span>Plan</span></button>
           <button class="tab-button" data-tab="recipes" type="button"><span class="tab-icon" aria-hidden="true">📖</span><span>Recipes</span></button>
           <button class="tab-button" data-tab="groceries" type="button"><span class="tab-icon" aria-hidden="true">🛒</span><span>Groceries</span></button>
-          <button class="tab-action" id="log-cooked" type="button" aria-label="Log a cooked recipe"><span aria-hidden="true">+</span></button>
+          <button class="tab-action" id="log-cooked" type="button" aria-label="Log a cooked recipe"><span aria-hidden="true">+</span><span class="tab-action-label" aria-hidden="true">Log a cooked meal</span></button>
           <button class="tab-button" data-tab="ingredients" type="button"><span class="tab-icon" aria-hidden="true">🥕</span><span>Ingredients</span></button>
-          <button class="tab-button" data-tab="kitchen-stock" type="button"><span class="tab-icon" aria-hidden="true">🧺</span><span class="wide-label">Kitchen stock</span><span class="narrow-label">Stock</span></button>
-          <button class="tab-button nutrition-only" data-tab="macros" type="button"><span class="tab-icon" aria-hidden="true">📊</span><span>Macros</span></button>
+          <button class="tab-button" data-tab="kitchen-stock" type="button"><span class="tab-icon" aria-hidden="true">🧺</span><span>Pantry</span></button>
+          <button class="tab-button nutrition-only" data-tab="macros" type="button"><span class="tab-icon" aria-hidden="true">📊</span><span>Nutrition</span></button>
         </nav>
+        <button class="sidebar-avatar-button" id="sidebar-open-settings" type="button" aria-label="Open settings" title="Settings"><span class="member-avatar header-avatar" data-current-member-avatar aria-hidden="true"></span></button>
         <div class="household-note">
           <strong id="week-sidebar-title">This week</strong>
           <span id="planned-count">0 meals planned</span>
@@ -511,7 +515,7 @@
           <label class="settings-toggle" for="hide-nutrition">
             <span>
               <strong>Hide calories and macros</strong>
-              <small>Remove nutrition numbers and the Macros page from your view.</small>
+              <small>Remove nutrition numbers and the Nutrition page from your view.</small>
             </span>
             <input id="hide-nutrition" type="checkbox" />
           </label>
@@ -547,6 +551,7 @@
         </section>
 
         <div class="profile-dialog-actions">
+          <button class="text-button settings-sign-out" id="settings-sign-out" type="button">Sign out</button>
           <button class="text-button" id="cancel-profile" type="button">Close</button>
           <button class="primary-button" id="save-profile" type="button">Save profile</button>
         </div>
@@ -615,7 +620,7 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="receipt-import.js?v=20261007-35"></script>
-    <script src="app.js?v=20261007-35"></script>
+    <script src="receipt-import.js?v=20261007-36"></script>
+    <script src="app.js?v=20261007-36"></script>
   </body>
 </html>
