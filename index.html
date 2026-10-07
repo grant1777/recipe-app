@@ -4,10 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Household Recipe Planner</title>
+    <script>
+      // Appearance is per device, so apply it before the first paint to avoid a flash.
+      try {
+        document.documentElement.dataset.themeMode = localStorage.getItem("recipe-theme-mode") || "light";
+        document.documentElement.dataset.colorTheme = localStorage.getItem("recipe-color-theme") || "petal";
+      } catch (error) {
+        document.documentElement.dataset.themeMode = "light";
+        document.documentElement.dataset.colorTheme = "petal";
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261007-36" />
+    <link rel="stylesheet" href="styles.css?v=20261007-37" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -62,7 +72,6 @@
           <button class="tab-button" data-tab="recipes" type="button"><span class="tab-icon" aria-hidden="true">📖</span><span>Recipes</span></button>
           <button class="tab-button" data-tab="groceries" type="button"><span class="tab-icon" aria-hidden="true">🛒</span><span>Groceries</span></button>
           <button class="tab-action" id="log-cooked" type="button" aria-label="Log a cooked recipe"><span aria-hidden="true">+</span><span class="tab-action-label" aria-hidden="true">Log a cooked meal</span></button>
-          <button class="tab-button" data-tab="ingredients" type="button"><span class="tab-icon" aria-hidden="true">🥕</span><span>Ingredients</span></button>
           <button class="tab-button" data-tab="kitchen-stock" type="button"><span class="tab-icon" aria-hidden="true">🧺</span><span>Pantry</span></button>
           <button class="tab-button nutrition-only" data-tab="macros" type="button"><span class="tab-icon" aria-hidden="true">📊</span><span>Nutrition</span></button>
         </nav>
@@ -99,211 +108,197 @@
         <section class="view active" id="planner-view" aria-labelledby="planner-title">
           <div class="view-header planner-view-header">
             <div>
-              <p class="eyebrow">Weekly meal planner</p>
-              <h2 id="planner-title">Plan meals by day</h2>
+              <h2 id="planner-title">This week</h2>
+              <p class="view-subtitle"><span id="week-range">Week range</span> · <span id="week-progress-label">0 of 21 meals planned</span></p>
             </div>
             <div class="planner-toolbar">
-              <label class="planner-toolbar-field" for="active-planner">
-                <span>Planner</span>
+              <label class="pill-select" for="active-planner">
+                <span class="visually-hidden">Planner</span>
                 <select id="active-planner" aria-label="Active planner"></select>
               </label>
-              <button class="secondary-button" id="manage-planners" type="button">
-                <span class="wide-label">Household planners</span>
-                <span class="narrow-label">Planners</span>
-              </button>
+              <button class="icon-button" id="previous-week" type="button" aria-label="Previous week"><span aria-hidden="true">‹</span></button>
+              <button class="secondary-button" id="current-week" type="button">Today</button>
+              <button class="icon-button" id="next-week" type="button" aria-label="Next week"><span aria-hidden="true">›</span></button>
             </div>
           </div>
 
           <div class="week-bar">
-            <div class="week-nav" role="group" aria-label="Week navigation">
-              <button class="icon-button" id="previous-week" type="button" aria-label="Previous week">
-                <span aria-hidden="true">‹</span>
-              </button>
-              <div class="week-nav-label">
-                <strong id="week-range">Week range</strong>
-                <span id="week-relative">This week</span>
-              </div>
-              <button class="icon-button" id="next-week" type="button" aria-label="Next week">
-                <span aria-hidden="true">›</span>
-              </button>
+            <div class="week-progress" id="week-progress">
+              <div class="week-progress-track"><span class="week-progress-fill" id="week-progress-fill"></span></div>
             </div>
-            <div class="week-bar-meta">
-              <div class="week-progress" id="week-progress">
-                <div class="week-progress-track"><span class="week-progress-fill" id="week-progress-fill"></span></div>
-                <span class="week-progress-label" id="week-progress-label">0 of 21 meals planned</span>
-              </div>
-              <div class="week-actions">
-                <div class="planner-modes" role="group" aria-label="Planner layout">
-                  <button class="planner-mode active" data-planner-mode="day" type="button" aria-pressed="true">Day</button>
-                  <button class="planner-mode" data-planner-mode="week" type="button" aria-pressed="false">Week</button>
-                </div>
-                <button class="secondary-button" id="current-week" type="button">Today</button>
-                <button class="danger-button" id="clear-week" type="button">Clear week</button>
-              </div>
+            <div class="planner-modes" role="group" aria-label="Planner layout">
+              <button class="planner-mode active" data-planner-mode="day" type="button" aria-pressed="true">Day</button>
+              <button class="planner-mode" data-planner-mode="week" type="button" aria-pressed="false">Week</button>
             </div>
           </div>
 
           <div class="day-strip" id="day-strip" role="group" aria-label="Day of week"></div>
           <div class="week-grid" id="week-grid" data-planner-mode="day"></div>
+          <div class="planner-footer">
+            <button class="text-button" id="manage-planners" type="button">Manage household planners</button>
+            <button class="text-button danger-text" id="clear-week" type="button">Clear this week</button>
+          </div>
         </section>
 
         <section class="view" id="recipes-view" aria-labelledby="recipes-title">
-          <div class="view-header">
+          <div class="view-header recipes-header">
             <div>
-              <p class="eyebrow">Recipe collection</p>
               <h2 id="recipes-title">Recipes</h2>
             </div>
             <div class="recipe-page-actions">
               <label class="recipe-search" for="recipe-search">
-                <span>Search recipes</span>
-                <input id="recipe-search" type="search" placeholder="Search by name or category" />
+                <span class="visually-hidden">Search recipes</span>
+                <input id="recipe-search" type="search" placeholder="Search recipes or ingredients" autocomplete="off" />
               </label>
               <button class="primary-button" id="open-recipe-editor" type="button">
-                <span class="wide-label">+ Add recipe</span>
-                <span class="narrow-label">+ Add</span>
+                <span class="wide-label">+ New recipe</span>
+                <span class="narrow-label">+ New</span>
               </button>
             </div>
           </div>
+          <div class="recipe-filters" id="recipe-filters"></div>
           <div class="recipe-catalogue" id="recipe-catalogue"></div>
           <article class="recipe-detail-page" id="recipe-detail" hidden></article>
         </section>
 
         <section class="view" id="recipe-editor-view" aria-labelledby="recipe-editor-title">
-          <div class="view-header">
+          <div class="view-header editor-header">
             <div>
-              <p class="eyebrow">Recipe editor</p>
-              <h2 id="recipe-editor-title">Create and manage recipes</h2>
+              <button class="back-link" id="close-recipe-editor" type="button">← <span id="recipe-editor-back-label">All recipes</span></button>
+              <h2 id="recipe-editor-title">New recipe</h2>
             </div>
             <div class="recipe-editor-header-actions">
-              <div class="filter-row">
-                <label for="category-filter">Category</label>
-                <select id="category-filter">
-                  <option value="all">All recipes</option>
-                </select>
-              </div>
-              <button class="secondary-button" id="close-recipe-editor" type="button">Back to recipes</button>
+              <button class="secondary-button" id="cancel-recipe-edit" type="button">Cancel</button>
+              <button class="primary-button" id="save-recipe" type="submit" form="recipe-form">Add recipe</button>
             </div>
           </div>
 
-          <details class="recipe-import" id="recipe-import">
-            <summary>Import from a recipe website</summary>
-            <div class="recipe-import-body">
-              <ol class="recipe-import-steps">
-                <li>Open the recipe page and press <kbd>Ctrl</kbd>+<kbd>U</kbd> to show its page source.</li>
-                <li>Select everything (<kbd>Ctrl</kbd>+<kbd>A</kbd>), copy it, and paste it below.</li>
-                <li>Import fills in the form underneath so you can check it before saving.</li>
-              </ol>
-              <p class="recipe-import-hint">
-                <a class="recipe-import-bookmarklet" id="recipe-import-bookmarklet" href="#">Grab recipe</a>
-                Faster option: drag that link to your bookmarks bar, then click it on a recipe page to copy just the recipe
-                data. Click it here to copy the bookmarklet code instead.
-              </p>
-              <label class="recipe-import-label" for="recipe-import-source">
-                Pasted page
-                <textarea id="recipe-import-source" placeholder="Paste the page source or the copied recipe data here"></textarea>
-              </label>
-              <div class="recipe-import-actions">
-                <button class="primary-button" id="recipe-import-run" type="button">Import recipe</button>
-                <button class="text-button" id="recipe-import-clear" type="button">Clear</button>
+          <form class="recipe-form recipe-editor-form" id="recipe-form">
+            <div class="editor-main">
+              <div class="editor-basics">
+                <div class="editor-field editor-name">
+                  <label for="recipe-name">Recipe name</label>
+                  <input id="recipe-name" required placeholder="Chicken rice bowls" />
+                </div>
+                <div class="editor-field">
+                  <label for="recipe-category">Category</label>
+                  <select id="recipe-category"></select>
+                </div>
+                <div class="editor-field">
+                  <label for="recipe-servings">Servings</label>
+                  <div class="stepper">
+                    <button class="stepper-button" type="button" data-servings-step="-1" aria-label="Fewer servings">−</button>
+                    <input id="recipe-servings" min="1" required step="1" type="number" inputmode="numeric" value="4" />
+                    <button class="stepper-button" type="button" data-servings-step="1" aria-label="More servings">+</button>
+                  </div>
+                </div>
               </div>
-              <p class="recipe-import-message" id="recipe-import-message"></p>
-            </div>
-          </details>
 
-          <form class="recipe-form" id="recipe-form">
-            <div class="form-grid">
-              <label>
-                Recipe name
-                <input id="recipe-name" required placeholder="Chicken rice bowls" />
-              </label>
-              <label>
-                Category
-                <select id="recipe-category"></select>
-              </label>
-              <label>
-                Servings
-                <input id="recipe-servings" min="1" required step="1" type="number" inputmode="numeric" value="4" />
-              </label>
-            </div>
+              <div class="ingredient-builder recipe-form-section" data-open="true">
+                <div class="ingredient-builder-header">
+                  <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-ingredients-body">
+                    <span class="section-toggle-chevron" aria-hidden="true">▾</span>
+                    <span>Ingredients</span>
+                  </button>
+                  <span class="section-hint">Drag <span aria-hidden="true">⠿</span> to reorder</span>
+                  <button class="add-link" id="add-recipe-ingredient" type="button">+ Add ingredient</button>
+                </div>
+                <div class="recipe-form-section-body" id="recipe-ingredients-body">
+                  <div class="recipe-ingredient-columns" aria-hidden="true"><span></span><span>Amount</span><span>Unit</span><span>Ingredient</span><span></span></div>
+                  <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
+                </div>
+              </div>
 
-            <div class="recipe-photo-field">
-              <div class="recipe-photo-preview" id="recipe-photo-preview" data-empty="true" aria-hidden="true"></div>
-              <div class="recipe-photo-controls">
-                <strong>Photo</strong>
-                <p class="recipe-photo-hint" id="recipe-photo-message">Optional. Maximum file size: 2 MB.</p>
-                <div class="recipe-photo-buttons">
-                  <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
-                  <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
-                  <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove photo</button>
+              <div class="recipe-step-builder recipe-form-section" data-open="true">
+                <div class="ingredient-builder-header">
+                  <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-steps-body">
+                    <span class="section-toggle-chevron" aria-hidden="true">▾</span>
+                    <span>Instructions</span>
+                  </button>
+                  <button class="add-link" id="add-recipe-step" type="button">+ Add step</button>
+                </div>
+                <div class="recipe-form-section-body" id="recipe-steps-body">
+                  <p class="recipe-step-hint">Mention an ingredient by name to make its amount interactive.</p>
+                  <div class="recipe-step-rows" id="recipe-step-rows"></div>
                 </div>
               </div>
             </div>
 
-            <div class="ingredient-builder recipe-form-section" data-open="true">
-              <div class="ingredient-builder-header">
-                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-ingredients-body">
-                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
-                  <span>Ingredients</span>
-                </button>
-                <button class="secondary-button" id="add-recipe-ingredient" type="button">Add ingredient</button>
+            <aside class="editor-side">
+              <div class="recipe-photo-field">
+                <span class="editor-side-label">Photo</span>
+                <div class="recipe-photo-preview" id="recipe-photo-preview" data-empty="true" aria-hidden="true"></div>
+                <div class="recipe-photo-buttons">
+                  <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
+                  <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
+                  <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove</button>
+                  <span class="recipe-photo-limit">Max 2 MB</span>
+                </div>
+                <p class="recipe-photo-hint" id="recipe-photo-message"></p>
               </div>
-              <div class="recipe-form-section-body" id="recipe-ingredients-body">
-                <div class="recipe-ingredient-rows" id="recipe-ingredient-rows"></div>
-              </div>
-            </div>
 
-            <div class="recipe-step-builder recipe-form-section" data-open="true">
-              <div class="ingredient-builder-header">
-                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-steps-body">
-                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
-                  <span>Instructions</span>
-                </button>
-                <button class="secondary-button" id="add-recipe-step" type="button">Add step</button>
-              </div>
-              <div class="recipe-form-section-body" id="recipe-steps-body">
-                <p class="recipe-step-hint">Mention an ingredient by name to make its recipe amount interactive.</p>
-                <div class="recipe-step-rows" id="recipe-step-rows"></div>
-              </div>
-            </div>
+              <details class="recipe-import" id="recipe-import">
+                <summary>
+                  <span class="recipe-import-title">Import from a recipe website</span>
+                  <span class="recipe-import-summary">Paste a recipe page and we'll fill in this form for you to check.</span>
+                </summary>
+                <div class="recipe-import-body">
+                  <ol class="recipe-import-steps">
+                    <li>Open the recipe page and press <kbd>Ctrl</kbd>+<kbd>U</kbd> to show its page source.</li>
+                    <li>Select everything (<kbd>Ctrl</kbd>+<kbd>A</kbd>), copy it, and paste it below.</li>
+                    <li>Import fills in the form so you can check it before saving.</li>
+                  </ol>
+                  <p class="recipe-import-hint">
+                    <a class="recipe-import-bookmarklet" id="recipe-import-bookmarklet" href="#">Grab recipe</a>
+                    Faster option: drag that link to your bookmarks bar, then click it on a recipe page to copy just the recipe
+                    data. Click it here to copy the bookmarklet code instead.
+                  </p>
+                  <label class="recipe-import-label" for="recipe-import-source">
+                    Pasted page
+                    <textarea id="recipe-import-source" placeholder="Paste the page source or the copied recipe data here"></textarea>
+                  </label>
+                  <div class="recipe-import-actions">
+                    <button class="primary-button" id="recipe-import-run" type="button">Import recipe</button>
+                    <button class="text-button" id="recipe-import-clear" type="button">Clear</button>
+                  </div>
+                  <p class="recipe-import-message" id="recipe-import-message"></p>
+                </div>
+              </details>
 
-            <div class="recipe-macro-builder recipe-form-section" data-open="true">
-              <div class="ingredient-builder-header">
-                <button class="section-toggle" type="button" aria-expanded="true" aria-controls="recipe-macros-body">
-                  <span class="section-toggle-chevron" aria-hidden="true">▾</span>
-                  <span>Macros</span>
-                </button>
+              <div class="recipe-macro-builder nutrition-only">
+                <div class="editor-side-heading">
+                  <span class="editor-side-label">Nutrition per serving</span>
+                  <span class="editor-side-note">From your ingredient index</span>
+                </div>
+                <div class="nutrition-tiles" id="recipe-macro-preview"></div>
               </div>
-              <div class="recipe-form-section-body" id="recipe-macros-body">
-                <div class="macro-row recipe-macro-preview" id="recipe-macro-preview"></div>
+
+              <div class="editor-field">
+                <label for="recipe-notes">Notes</label>
+                <textarea id="recipe-notes" placeholder="Sauce, prep notes, oven temp, picky-eater edits"></textarea>
               </div>
-            </div>
 
-            <label>
-              Notes
-              <textarea id="recipe-notes" placeholder="Sauce, prep notes, oven temp, picky-eater edits"></textarea>
-            </label>
-
-            <div class="recipe-form-actions">
-              <button class="text-button" id="cancel-recipe-edit" type="button" hidden>Cancel editing</button>
-              <button class="primary-button" id="save-recipe" type="submit">Add recipe</button>
-            </div>
+              <button class="text-button danger-text" id="delete-recipe" type="button" hidden>Delete this recipe</button>
+            </aside>
           </form>
-
-          <div class="recipe-editor-list" id="recipe-list"></div>
         </section>
 
         <section class="view" id="groceries-view" aria-labelledby="groceries-title">
-          <div class="view-header">
+          <div class="view-header groceries-header">
             <div>
-              <p class="eyebrow">Auto-built list</p>
-              <h2 id="groceries-title">Groceries for planned meals</h2>
+              <p class="view-kicker" id="groceries-range"></p>
+              <h2 id="groceries-title">Groceries</h2>
+              <p class="grocery-tally"><span class="grocery-tally-count" id="grocery-left">0</span> <span id="grocery-left-label">left to buy</span></p>
             </div>
             <div class="week-controls">
-              <button class="secondary-button" id="open-walmart-list" type="button">Open Walmart</button>
-              <button class="primary-button" id="copy-groceries" type="button">Copy list</button>
+              <button class="secondary-button" id="copy-groceries" type="button">Copy list</button>
+              <button class="primary-button" id="open-walmart-list" type="button">Open Walmart</button>
             </div>
           </div>
-          <div class="grocery-list" id="grocery-list"></div>
+          <div class="grocery-section">
+            <h3 class="grocery-section-title">To buy</h3>
+            <div class="grocery-list" id="grocery-list"></div>
+          </div>
         </section>
 
         <section class="view" id="ingredients-view" aria-labelledby="ingredients-title">
@@ -312,7 +307,12 @@
               <p class="eyebrow">Nutrition and products</p>
               <h2 id="ingredients-title">Ingredient index</h2>
             </div>
+            <div class="subnav" role="group" aria-label="Pantry pages">
+              <button class="subnav-button" data-subview="kitchen-stock" type="button" aria-pressed="false">In your kitchen</button>
+              <button class="subnav-button active" data-subview="ingredients" type="button" aria-pressed="true">Ingredient index</button>
+            </div>
           </div>
+          <button class="back-link" id="back-to-recipe-editor" type="button" hidden>← Back to the recipe you were editing</button>
 
           <form class="recipe-form" id="ingredient-form">
             <div class="form-grid ingredient-form-grid">
@@ -375,8 +375,12 @@
         <section class="view" id="kitchen-stock-view" aria-labelledby="kitchen-stock-title">
           <div class="view-header">
             <div>
-              <p class="eyebrow">What's on hand</p>
-              <h2 id="kitchen-stock-title">Kitchen stock</h2>
+              <p class="eyebrow">What's in your kitchen</p>
+              <h2 id="kitchen-stock-title">Pantry</h2>
+            </div>
+            <div class="subnav" role="group" aria-label="Pantry pages">
+              <button class="subnav-button active" data-subview="kitchen-stock" type="button" aria-pressed="true">In your kitchen</button>
+              <button class="subnav-button" data-subview="ingredients" type="button" aria-pressed="false">Ingredient index</button>
             </div>
           </div>
 
@@ -446,7 +450,7 @@
           <div class="view-header">
             <div>
               <p class="eyebrow">Nutrition totals</p>
-              <h2 id="macros-title">Weekly nutrition</h2>
+              <h2 id="macros-title">Nutrition</h2>
             </div>
           </div>
           <div class="macro-controls">
@@ -478,6 +482,146 @@
           <div class="macro-summary" id="macro-summary"></div>
           <div class="macro-dashboard" id="macro-dashboard"></div>
         </section>
+        <section class="view" id="settings-view" aria-labelledby="profile-dialog-title">
+          <div class="settings-layout">
+            <aside class="settings-nav">
+              <div class="settings-nav-heading">
+                <button class="settings-back" id="close-profile-dialog" type="button" aria-label="Close settings"><span aria-hidden="true">←</span></button>
+                <h2 id="profile-dialog-title">Settings</h2>
+              </div>
+              <nav class="settings-nav-links" aria-label="Settings sections">
+                <a class="settings-nav-link active" href="#appearance-settings" data-settings-link="appearance-settings">Appearance</a>
+                <a class="settings-nav-link" href="#profile-settings" data-settings-link="profile-settings">Profile</a>
+                <a class="settings-nav-link" href="#household-settings" data-settings-link="household-settings">Household</a>
+                <a class="settings-nav-link" href="#access-management" data-settings-link="access-management" id="access-management-link" hidden>Database access</a>
+              </nav>
+              <div class="settings-nav-actions">
+                <button class="primary-button" id="save-profile" type="button">Save profile</button>
+                <button class="text-button" id="cancel-profile" type="button">Close</button>
+              </div>
+              <button class="text-button settings-sign-out" id="settings-sign-out" type="button">Sign out</button>
+            </aside>
+
+            <form class="settings-panels" id="profile-form" method="dialog">
+              <section class="settings-section" id="appearance-settings" aria-labelledby="appearance-settings-title">
+                <div class="settings-section-heading">
+                  <h3 id="appearance-settings-title">Appearance</h3>
+                  <p class="profile-hint">Only changes how the app looks on this device.</p>
+                </div>
+                <fieldset class="settings-fieldset">
+                  <legend>Mode</legend>
+                  <div class="theme-modes">
+                    <label class="theme-mode" data-mode="light">
+                      <input type="radio" name="theme-mode" value="light" checked />
+                      <span class="theme-mode-preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <span class="theme-mode-label">Light<span class="theme-mode-check" aria-hidden="true">✓</span></span>
+                    </label>
+                    <label class="theme-mode" data-mode="dark">
+                      <input type="radio" name="theme-mode" value="dark" />
+                      <span class="theme-mode-preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <span class="theme-mode-label">Dark<span class="theme-mode-check" aria-hidden="true">✓</span></span>
+                    </label>
+                    <label class="theme-mode" data-mode="system">
+                      <input type="radio" name="theme-mode" value="system" />
+                      <span class="theme-mode-preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <span class="theme-mode-label">System<span class="theme-mode-check" aria-hidden="true">✓</span></span>
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset class="settings-fieldset">
+                  <legend>Color theme</legend>
+                  <div class="theme-swatches">
+                    <label class="theme-swatch" data-swatch="petal">
+                      <input type="radio" name="color-theme" value="petal" checked />
+                      <span class="theme-swatch-dot" aria-hidden="true"></span>
+                      <span class="theme-swatch-label">Petal</span>
+                    </label>
+                    <label class="theme-swatch" data-swatch="mint">
+                      <input type="radio" name="color-theme" value="mint" />
+                      <span class="theme-swatch-dot" aria-hidden="true"></span>
+                      <span class="theme-swatch-label">Mint</span>
+                    </label>
+                    <label class="theme-swatch" data-swatch="butter">
+                      <input type="radio" name="color-theme" value="butter" />
+                      <span class="theme-swatch-dot" aria-hidden="true"></span>
+                      <span class="theme-swatch-label">Butter</span>
+                    </label>
+                    <label class="theme-swatch" data-swatch="sky">
+                      <input type="radio" name="color-theme" value="sky" />
+                      <span class="theme-swatch-dot" aria-hidden="true"></span>
+                      <span class="theme-swatch-label">Sky</span>
+                    </label>
+                    <label class="theme-swatch" data-swatch="lilac">
+                      <input type="radio" name="color-theme" value="lilac" />
+                      <span class="theme-swatch-dot" aria-hidden="true"></span>
+                      <span class="theme-swatch-label">Lilac</span>
+                    </label>
+                  </div>
+                </fieldset>
+              </section>
+
+              <section class="settings-section" id="profile-settings" aria-labelledby="profile-settings-title">
+                <div class="settings-section-heading">
+                  <h3 id="profile-settings-title">Profile</h3>
+                  <p class="profile-hint">Choose how you appear to everyone in your household.</p>
+                </div>
+
+                <div class="profile-preview">
+                  <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
+                  <label class="secondary-button file-button" for="profile-photo">Choose photo</label>
+                  <input id="profile-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
+                  <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
+                </div>
+
+                <div class="settings-field">
+                  <label for="profile-name">Display name</label>
+                  <input id="profile-name" maxlength="40" autocomplete="off" placeholder="Your name" />
+                </div>
+
+                <label class="settings-toggle" for="hide-nutrition">
+                  <span>
+                    <strong>Hide calories and macros</strong>
+                    <small>Remove nutrition numbers and the Nutrition page from your view.</small>
+                  </span>
+                  <input id="hide-nutrition" type="checkbox" role="switch" />
+                </label>
+
+                <p id="profile-message" class="auth-message" aria-live="polite"></p>
+              </section>
+
+              <section class="settings-section" id="household-settings" aria-labelledby="household-settings-title">
+                <div class="settings-section-heading">
+                  <h3 id="household-settings-title">Household</h3>
+                  <p class="profile-hint">Share this private code with someone you want to invite.</p>
+                </div>
+                <div class="settings-invite">
+                  <code id="household-code">Loading...</code>
+                  <button class="primary-button" id="copy-household-code" type="button">Copy invite code</button>
+                </div>
+                <p id="settings-household-message" class="auth-message" aria-live="polite"></p>
+                <div class="settings-danger-zone">
+                  <div>
+                    <strong>Leave household</strong>
+                    <p class="profile-hint">You will need an invite code to join it again.</p>
+                  </div>
+                  <button class="danger-button" id="leave-household" type="button">Leave</button>
+                </div>
+              </section>
+
+              <section class="settings-section access-management" id="access-management" aria-labelledby="access-management-title" hidden>
+                <div class="settings-section-heading">
+                  <h3 id="access-management-title">Database access</h3>
+                  <p class="profile-hint">Only approved Firebase accounts can use household data or upload images.</p>
+                </div>
+                <h4>Waiting for approval</h4>
+                <div class="access-user-list" id="access-request-list"><p class="profile-hint">No pending requests.</p></div>
+                <h4>Approved users</h4>
+                <div class="access-user-list" id="approved-user-list"><p class="profile-hint">Loading approved users...</p></div>
+                <p id="access-management-message" class="auth-message" aria-live="polite"></p>
+              </section>
+            </form>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -487,76 +631,6 @@
       </select>
     </template>
 
-    <dialog class="profile-dialog settings-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
-      <div class="dialog-header">
-        <h2 id="profile-dialog-title">Settings</h2>
-        <button class="dialog-close" id="close-profile-dialog" type="button" aria-label="Close settings" title="Close">
-          <span aria-hidden="true">×</span>
-        </button>
-      </div>
-      <form id="profile-form" method="dialog">
-
-        <section class="settings-section" aria-labelledby="profile-settings-title">
-          <h3 id="profile-settings-title">Profile</h3>
-          <p class="profile-hint">Choose how you appear to everyone in your household.</p>
-
-          <div class="profile-preview">
-            <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
-            <div class="profile-photo-actions">
-              <label class="light-button file-button" for="profile-photo">Choose photo</label>
-              <input id="profile-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
-              <button class="text-button" id="remove-profile-photo" type="button">Remove photo</button>
-            </div>
-          </div>
-
-          <label for="profile-name">Display name</label>
-          <input id="profile-name" maxlength="40" autocomplete="off" placeholder="Your name" />
-
-          <label class="settings-toggle" for="hide-nutrition">
-            <span>
-              <strong>Hide calories and macros</strong>
-              <small>Remove nutrition numbers and the Nutrition page from your view.</small>
-            </span>
-            <input id="hide-nutrition" type="checkbox" />
-          </label>
-
-          <p id="profile-message" class="auth-message" aria-live="polite"></p>
-        </section>
-
-        <section class="settings-section" aria-labelledby="household-settings-title">
-          <h3 id="household-settings-title">Household</h3>
-          <p class="profile-hint">Share this private code with someone you want to invite.</p>
-          <div class="settings-invite">
-            <code id="household-code">Loading...</code>
-            <button class="secondary-button" id="copy-household-code" type="button">Copy invite code</button>
-          </div>
-          <p id="settings-household-message" class="auth-message" aria-live="polite"></p>
-          <div class="settings-danger-zone">
-            <div>
-              <strong>Leave household</strong>
-              <p class="profile-hint">You will need an invite code to join it again.</p>
-            </div>
-            <button class="danger-button" id="leave-household" type="button">Leave</button>
-          </div>
-        </section>
-
-        <section class="settings-section access-management" id="access-management" aria-labelledby="access-management-title" hidden>
-          <h3 id="access-management-title">Database access</h3>
-          <p class="profile-hint">Only approved Firebase accounts can use household data or upload images.</p>
-          <h4>Waiting for approval</h4>
-          <div class="access-user-list" id="access-request-list"><p class="profile-hint">No pending requests.</p></div>
-          <h4>Approved users</h4>
-          <div class="access-user-list" id="approved-user-list"><p class="profile-hint">Loading approved users...</p></div>
-          <p id="access-management-message" class="auth-message" aria-live="polite"></p>
-        </section>
-
-        <div class="profile-dialog-actions">
-          <button class="text-button settings-sign-out" id="settings-sign-out" type="button">Sign out</button>
-          <button class="text-button" id="cancel-profile" type="button">Close</button>
-          <button class="primary-button" id="save-profile" type="button">Save profile</button>
-        </div>
-      </form>
-    </dialog>
 
     <dialog class="profile-dialog member-profile-dialog" id="member-profile-dialog" aria-labelledby="member-profile-name">
       <form method="dialog">
@@ -604,6 +678,36 @@
       </div>
     </dialog>
 
+    <dialog class="profile-dialog add-plan-dialog" id="add-plan-dialog" aria-labelledby="add-plan-title">
+      <form class="planner-dialog-content" id="add-plan-form" method="dialog">
+        <div>
+          <p class="eyebrow" id="add-plan-planner">Household planner</p>
+          <h2 id="add-plan-title">Add to plan</h2>
+          <p class="profile-hint" id="add-plan-recipe"></p>
+        </div>
+        <div class="add-plan-week">
+          <button class="icon-button" id="add-plan-previous" type="button" aria-label="Previous week"><span aria-hidden="true">‹</span></button>
+          <strong id="add-plan-week-label"></strong>
+          <button class="icon-button" id="add-plan-next" type="button" aria-label="Next week"><span aria-hidden="true">›</span></button>
+        </div>
+        <div class="add-plan-fields">
+          <div class="editor-field">
+            <label for="add-plan-day">Day</label>
+            <select id="add-plan-day"></select>
+          </div>
+          <div class="editor-field">
+            <label for="add-plan-meal">Meal</label>
+            <select id="add-plan-meal"></select>
+          </div>
+        </div>
+        <p class="add-plan-note" id="add-plan-note" aria-live="polite"></p>
+        <div class="profile-dialog-actions">
+          <button class="secondary-button" id="add-plan-cancel" type="button">Cancel</button>
+          <button class="primary-button" id="add-plan-submit" type="submit">Add to plan</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="profile-dialog cook-dialog" id="cook-dialog" aria-labelledby="cook-dialog-title">
       <div class="planner-dialog-content">
         <div>
@@ -620,7 +724,7 @@
       </div>
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
-    <script src="receipt-import.js?v=20261007-36"></script>
-    <script src="app.js?v=20261007-36"></script>
+    <script src="receipt-import.js?v=20261007-37"></script>
+    <script src="app.js?v=20261007-37"></script>
   </body>
 </html>

@@ -200,7 +200,7 @@ const authEls = {
   memberProfileEmail: document.getElementById("member-profile-email"),
   memberProfileRole: document.getElementById("member-profile-role"),
   plannerDialog: document.getElementById("planner-dialog"),
-  profileDialog: document.getElementById("profile-dialog"),
+  profileDialog: document.getElementById("settings-view"),
   profileAvatar: document.getElementById("profile-avatar"),
   profileName: document.getElementById("profile-name"),
   profilePhoto: document.getElementById("profile-photo"),
@@ -251,6 +251,15 @@ let hideNutritionPreference = false;
 let personalNutrition = defaultPersonalNutrition();
 let activePlannerId = null;
 let openRecipeId = null;
+// Recipe page filters: "Can make now" and one category at a time.
+let recipeCanMakeOnly = false;
+let recipeCategoryFilter = "";
+// Ingredients ticked off while cooking, per recipe. Kept for the session only.
+const recipeIngredientChecks = new Map();
+// Set when "Add it" leaves the recipe editor for the ingredient index.
+let returnToRecipeEditor = false;
+// Where Settings returns to when it is closed.
+let settingsReturnView = null;
 // Narrow screens show one day at a time; "week" shows the whole grid. Null means
 // "follow today", so moving between weeks lands on a sensible day on its own.
 let plannerMode = "day";
@@ -841,11 +850,33 @@ function renderTabs() {
       activateAppView(button.dataset.tab, button.dataset.tab);
     });
   });
+  // Pantry holds two pages: what is in the kitchen, and the ingredient index behind it.
+  document.querySelectorAll(".subnav-button").forEach((button) => {
+    button.addEventListener("click", () => activateAppView(button.dataset.subview, "kitchen-stock"));
+  });
 }
 
 function activateAppView(viewName, activeTab = viewName) {
   document.querySelectorAll(".tab-button").forEach((button) => button.classList.toggle("active", button.dataset.tab === activeTab));
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `${viewName}-view`));
+  document.querySelectorAll(".subnav-button").forEach((button) => {
+    const active = button.dataset.subview === viewName;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  // The header avatar is the way into Settings, so it shows as the current page there.
+  document.querySelectorAll(".sidebar-avatar-button, .mobile-settings-button").forEach((button) => {
+    button.classList.toggle("is-current", viewName === "settings");
+    if (viewName === "settings") button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  if (viewName !== "ingredients") document.getElementById("back-to-recipe-editor").hidden = true;
+}
+
+function currentAppView() {
+  const view = document.querySelector(".view.active");
+  const tab = document.querySelector(".tab-button.active");
+  return { view: view ? view.id.replace(/-view$/, "") : "planner", tab: tab?.dataset.tab || "planner" };
 }
 
 function showRecipeEditor(recipe = null) {
@@ -903,24 +934,26 @@ function slotSummary(value) {
   }
   const recipe = value ? recipeById(value) : null;
   if (!recipe) return { kind: "empty", label: "", image: "", note: "" };
-  return { kind: "recipe", label: recipe.name, image: recipeImage(recipe), note: recipe.category || "" };
+  return { kind: "recipe", label: recipe.name, image: recipeImage(recipe), note: `Serves ${formatQuantity(Number(recipe.servings || 1))}` };
 }
 
-function mealSlotMarkup(day, meal, value) {
+function mealSlotMarkup(day, meal, value, isToday = false) {
   const takeout = isTakeoutValue(value);
   const summary = slotSummary(value);
   const filled = summary.kind !== "empty";
   const thumb = summary.image
     ? `<span class="meal-slot-thumb has-photo" style="background-image:url('${summary.image}')"></span>`
-    : `<span class="meal-slot-thumb" aria-hidden="true">${summary.kind === "takeout" ? "🥡" : mealIcons[meal] || "🍽️"}</span>`;
+    : `<span class="meal-slot-thumb" aria-hidden="true">${summary.kind === "takeout" ? "🥡" : filled ? "" : "+"}</span>`;
+  const emptyLabel = isToday ? "Pick a recipe" : `Add ${meal.toLowerCase()}`;
 
   return `
-    <div class="meal-slot" data-filled="${filled}" data-kind="${summary.kind}" data-takeout="${takeout}">
+    <div class="meal-slot" data-filled="${filled}" data-kind="${summary.kind}" data-takeout="${takeout}" data-meal="${meal}">
       <div class="meal-slot-main">
         ${thumb}
         <span class="meal-slot-text" aria-hidden="true">
           <span class="meal-slot-label">${meal}</span>
-          <span class="meal-slot-value">${filled ? escapeHtml(summary.label) : "Add a recipe"}</span>
+          <span class="meal-slot-value">${filled ? escapeHtml(summary.label) : emptyLabel}</span>
+          ${filled && summary.note ? `<span class="meal-slot-meta">${escapeHtml(summary.note)}</span>` : ""}
         </span>
         <span class="meal-slot-chevron" aria-hidden="true">▾</span>
         <select class="meal-slot-select" id="${day}-${meal}" aria-label="${day} ${meal}" data-day="${day}" data-meal="${meal}">
@@ -990,20 +1023,28 @@ function renderPlanner() {
     })
     .join("");
 
-  grid.innerHTML = days
+  // One row per day on wide screens (a header row names the meal columns); the
+  // same markup becomes one card per day on a phone.
+  const head = `<div class="plan-head" aria-hidden="true"><span></span>${meals.map((meal) => `<span>${meal}</span>`).join("")}</div>`;
+  grid.innerHTML = head + days
     .map((day, index) => {
       const date = addDays(selectedWeekStart, index);
       const filled = filledCounts[index];
-      const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "")).join("");
+      const isToday = dateKey(date) === todayKey;
+      const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "", isToday)).join("");
 
       return `
         <article
           class="day-column"
           data-day="${day}"
-          data-today="${dateKey(date) === todayKey}"
+          data-today="${isToday}"
           data-selected="${index === dayIndex}"
         >
           <header class="day-column-header">
+            <div class="day-row-label" aria-hidden="true">
+              <span class="day-row-number">${date.getDate()}</span>
+              <span class="day-row-name">${isToday ? "Today" : day.slice(0, 3)}</span>
+            </div>
             <div class="day-column-title">
               <h3>${day}</h3>
               <span class="day-date">${formatDayDate(date)}</span>
@@ -1166,14 +1207,6 @@ function recipeOptions(selectedId = "") {
 
 function renderCategories() {
   const categories = recipeCategories();
-
-  // The filter only lists categories that would return something.
-  const filter = document.getElementById("category-filter");
-  const current = filter.value || "all";
-  const inUse = categories.filter((category) => state.recipes.some((recipe) => recipe.category === category));
-  filter.innerHTML = optionMarkup("all", "All recipes", current) + inUse.map((category) => optionMarkup(category, category, current)).join("");
-  filter.value = inUse.includes(current) ? current : "all";
-
   // The editor offers every assignable category, and keeps whatever is selected.
   const editor = document.getElementById("recipe-category");
   const chosen = editor.value || "Dinner";
@@ -1184,48 +1217,6 @@ function renderCategories() {
 
 function renderRecipeEditor() {
   renderCategories();
-  const list = document.getElementById("recipe-list");
-  const filter = document.getElementById("category-filter").value;
-  const recipes = state.recipes
-    .filter((recipe) => filter === "all" || recipe.category === filter)
-    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-
-  if (!recipes.length) {
-    list.innerHTML = '<p class="empty-state">No recipes in this category yet.</p>';
-    return;
-  }
-
-  list.innerHTML = recipes
-    .map((recipe) => `
-      <article class="recipe-editor-row">
-        <div>
-          <span class="category-pill">${escapeHtml(recipe.category)}</span>
-          <h3>${escapeHtml(recipe.name)}</h3>
-          <span class="recipe-editor-meta">${recipe.ingredients?.length || 0} ingredients · ${recipeSteps(recipe).length} steps · Serves ${formatQuantity(Number(recipe.servings || 1))}</span>
-        </div>
-        <div class="recipe-card-actions">
-          <button class="secondary-button" data-edit-recipe="${escapeHtml(recipe.id)}" type="button">Edit</button>
-          <button class="danger-button" data-delete="${escapeHtml(recipe.id)}" type="button">Delete</button>
-        </div>
-      </article>`)
-    .join("");
-
-  list.querySelectorAll("[data-delete]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!requireCloudWrite()) return;
-      const id = button.dataset.delete;
-      if (document.getElementById("recipe-form").dataset.editingId === id) resetRecipeForm();
-      deleteRecipe(id);
-    });
-  });
-
-  list.querySelectorAll("[data-edit-recipe]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const recipe = recipeById(button.dataset.editRecipe);
-      if (recipe) showRecipeEditor(recipe);
-    });
-  });
-
 }
 
 function deleteRecipe(id) {
@@ -1267,14 +1258,16 @@ function renderRecipes() {
   const view = document.getElementById("recipes-view");
   const catalogue = document.getElementById("recipe-catalogue");
   const detail = document.getElementById("recipe-detail");
+  const filters = document.getElementById("recipe-filters");
   const search = document.getElementById("recipe-search").value.trim().toLowerCase();
   const selectedRecipe = openRecipeId ? recipeById(openRecipeId) : null;
 
-  // Reading mode drops the page header on small screens so the recipe starts at the top.
+  // Reading a recipe swaps the collection header for the recipe's own back link.
   view.classList.toggle("is-reading", Boolean(selectedRecipe));
 
   if (selectedRecipe) {
     catalogue.hidden = true;
+    filters.hidden = true;
     detail.hidden = false;
     detail.innerHTML = recipeDetailMarkup(selectedRecipe);
     setupCloudImageDiagnostics(detail);
@@ -1286,26 +1279,88 @@ function renderRecipes() {
       showRecipeEditor(selectedRecipe);
     });
     detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(selectedRecipe));
+    detail.querySelector("[data-add-to-plan]").addEventListener("click", () => openAddToPlan(selectedRecipe));
     detail.querySelector("[data-undo-cook]")?.addEventListener("click", undoStockDeduction);
+    detail.querySelectorAll("[data-ingredient-check]").forEach((box) => {
+      box.addEventListener("change", () => {
+        const checks = recipeIngredientChecks.get(selectedRecipe.id) || new Set();
+        if (box.checked) checks.add(box.dataset.ingredientCheck);
+        else checks.delete(box.dataset.ingredientCheck);
+        recipeIngredientChecks.set(selectedRecipe.id, checks);
+      });
+    });
     setupIngredientMentions(detail);
+    updateDataControls();
     return;
   }
 
   detail.hidden = true;
   catalogue.hidden = false;
-  const recipes = state.recipes
-    .filter((recipe) => !search || `${recipe.name} ${recipe.category}`.toLowerCase().includes(search))
+  filters.hidden = false;
+
+  const searched = state.recipes.filter((recipe) => !search || recipeSearchText(recipe).includes(search));
+  const ready = new Set(searched.filter((recipe) => recipeStockCoverage(recipe).ready).map((recipe) => recipe.id));
+  const recipes = searched
+    .filter((recipe) => !recipeCanMakeOnly || ready.has(recipe.id))
+    .filter((recipe) => !recipeCategoryFilter || recipe.category === recipeCategoryFilter)
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  filters.innerHTML = recipeFilterMarkup(recipes.length);
+  filters.querySelector("[data-can-make]").addEventListener("click", () => {
+    recipeCanMakeOnly = !recipeCanMakeOnly;
+    renderRecipes();
+  });
+  filters.querySelectorAll("[data-category-filter]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      recipeCategoryFilter = recipeCategoryFilter === chip.dataset.categoryFilter ? "" : chip.dataset.categoryFilter;
+      renderRecipes();
+    });
+  });
+
   catalogue.innerHTML = recipes.length
     ? groupRecipesByCategory(recipes).map(recipeCategorySection).join("")
-    : '<p class="empty-state">No recipes match your search.</p>';
+    : `<p class="empty-state">${
+        recipeCanMakeOnly && !hasKitchenStock()
+          ? "Add what is in your kitchen on the Pantry page to see what you can make right now."
+          : "No recipes match."
+      }</p>`;
   setupCloudImageDiagnostics(catalogue);
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
       openRecipeId = button.dataset.openRecipe;
       renderRecipes();
+      window.scrollTo({ top: 0 });
     });
   });
+}
+
+// Recipes are found by name, category, or any ingredient they use.
+function recipeSearchText(recipe) {
+  const ingredients = (recipe.ingredients || []).map((item) => recipeIngredientParts(item).name || "").join(" ");
+  return `${recipe.name} ${recipe.category} ${ingredients}`.toLowerCase();
+}
+
+function recipeFilterMarkup(shown) {
+  const categories = recipeCategories().filter((category) => state.recipes.some((recipe) => recipe.category === category));
+  const ordered = [
+    ...categoryOrder.filter((category) => categories.includes(category)),
+    ...categories.filter((category) => !categoryOrder.includes(category))
+  ];
+  const noun = `recipe${shown === 1 ? "" : "s"}`;
+  const label = recipeCanMakeOnly
+    ? `Showing ${shown} ${noun} you have everything for`
+    : recipeCategoryFilter || document.getElementById("recipe-search").value.trim()
+      ? `Showing ${shown} ${noun}`
+      : `Showing all ${shown} ${noun}`;
+  return `
+    <button class="filter-chip can-make-chip" type="button" data-can-make aria-pressed="${recipeCanMakeOnly}">${recipeCanMakeOnly ? "✓ " : ""}Can make now</button>
+    ${ordered
+      .map(
+        (category) =>
+          `<button class="filter-chip" type="button" data-category-filter="${escapeHtml(category)}" aria-pressed="${recipeCategoryFilter === category}">${escapeHtml(category)}</button>`
+      )
+      .join("")}
+    <span class="recipe-filter-count">${label}</span>`;
 }
 
 function groupRecipesByCategory(recipes) {
@@ -1340,22 +1395,24 @@ function recipeCategorySection(group) {
 }
 
 function recipeCatalogueCard(recipe) {
-  const steps = recipeSteps(recipe).length;
   const coverage = recipeStockCoverage(recipe);
   return `
     <button class="recipe-catalogue-card${coverage.ready ? " is-ready" : ""}" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
       ${recipeCatalogueVisual(recipe)}
       ${unlinkedIngredientAlert(recipe)}
-      <span class="recipe-catalogue-body">
-        <span class="recipe-catalogue-tags">
-          <span class="category-pill">${escapeHtml(recipe.category)}</span>
-          ${stockCoverageBadge(coverage)}
-        </span>
-        <strong>${escapeHtml(recipe.name)}</strong>
-        <span>${recipe.ingredients?.length || 0} ingredients · ${steps} steps · Serves ${formatQuantity(Number(recipe.servings || 1))}</span>
-      </span>
-      <span class="recipe-catalogue-open">View recipe →</span>
+      <strong class="recipe-catalogue-name">${escapeHtml(recipe.name)}</strong>
+      ${recipeStatusMarkup(recipe, coverage)}
     </button>`;
+}
+
+// The line under a recipe: what the kitchen covers once there is stock to compare
+// against, and the recipe's size before that.
+function recipeStatusMarkup(recipe, coverage = recipeStockCoverage(recipe)) {
+  if (coverage.total && hasKitchenStock()) {
+    if (coverage.ready) return '<span class="recipe-status is-ready">✓ Can make now</span>';
+    return `<span class="recipe-status">${coverage.have} of ${coverage.total} in stock</span>`;
+  }
+  return `<span class="recipe-status">${recipe.ingredients?.length || 0} ingredients · Serves ${formatQuantity(Number(recipe.servings || 1))}</span>`;
 }
 
 // Typed-in ingredients (and links to ingredients since deleted) carry no
@@ -1386,43 +1443,148 @@ function recipeCatalogueVisual(recipe) {
   if (image) {
     return `<span class="recipe-catalogue-visual has-image" aria-hidden="true"><img class="recipe-catalogue-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" /></span>`;
   }
-  return `<span class="recipe-catalogue-visual" aria-hidden="true">${escapeHtml(recipe.name.slice(0, 1).toUpperCase())}</span>`;
+  return '<span class="recipe-catalogue-visual" aria-hidden="true"></span>';
 }
 
 function recipeDetailMarkup(recipe) {
   const macros = recipeMacros(recipe);
   const containers = recipeContainers(recipe);
   const steps = recipeSteps(recipe);
+  const image = recipeImage(recipe);
+  const coverage = recipeStockCoverage(recipe);
+  const checks = recipeIngredientChecks.get(recipe.id) || new Set();
+  const servings = formatQuantity(Number(recipe.servings || 1));
+  const stockLine = coverage.total && hasKitchenStock()
+    ? coverage.ready
+      ? '<p class="recipe-hero-stock is-ready">✓ Everything is in your kitchen</p>'
+      : `<p class="recipe-hero-stock">${coverage.have} of ${coverage.total} ingredients in your kitchen</p>`
+    : "";
+
   return `
-    <div class="recipe-detail-actions">
-      <button class="text-button" data-back-to-recipes type="button">← All recipes</button>
-      <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
-      ${lastStockDeduction?.recipeId === recipe.id ? '<button class="text-button" data-undo-cook type="button">Undo</button>' : ""}
-      <button class="secondary-button" data-edit-open-recipe type="button">Edit recipe</button>
-    </div>
-    ${recipeImage(recipe) ? `<img class="recipe-detail-image" src="${escapeHtml(recipeImage(recipe))}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
-    <header class="recipe-detail-header">
-      <span class="category-pill">${escapeHtml(recipe.category)}</span>
-      <h2>${escapeHtml(recipe.name)}</h2>
-      <p>Serves ${formatQuantity(Number(recipe.servings || 1))}</p>
-    </header>
-    <div class="recipe-detail-layout">
-      <aside class="recipe-detail-ingredients">
-        <h3>Ingredients</h3>
-        <ul class="ingredients">${recipe.ingredients.map((ingredient) => `<li>${recipeIngredientMarkup(ingredient)}</li>`).join("")}</ul>
-      </aside>
-      <div class="recipe-detail-method">
-        <section class="recipe-card-section recipe-instruction-block">
-          <h3>Instructions</h3>
-          ${steps.length ? `<ol class="recipe-instructions">${steps.map((step) => `<li>${highlightIngredientMentions(step, recipe)}</li>`).join("")}</ol>` : '<p class="empty-state">No instructions added yet.</p>'}
-        </section>
-        ${recipe.notes ? `<section class="recipe-card-section recipe-notes"><h3>Notes</h3><p>${escapeHtml(recipe.notes)}</p></section>` : ""}
+    <button class="back-link" data-back-to-recipes type="button">← All recipes</button>
+    <div class="recipe-hero">
+      <div class="recipe-hero-photo">
+        ${image ? `<img class="recipe-detail-image" src="${escapeHtml(image)}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
+      </div>
+      <div class="recipe-hero-body">
+        <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}</p>
+        <h2>${escapeHtml(recipe.name)}</h2>
+        ${recipe.notes ? `<p class="recipe-hero-notes">${escapeHtml(recipe.notes)}</p>` : ""}
+        ${stockLine}
+        <div class="recipe-hero-actions">
+          <button class="primary-button" data-add-to-plan type="button">Add to plan</button>
+          <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
+          ${lastStockDeduction?.recipeId === recipe.id ? '<button class="text-button" data-undo-cook type="button">Undo</button>' : ""}
+          <button class="text-button" data-edit-open-recipe type="button">Edit</button>
+        </div>
       </div>
     </div>
-    <details class="recipe-totals">
-      <summary>Recipe totals</summary>
-      <div class="macro-row">${nutrientChips(macros)}${catalogItems(recipe).length ? macroChip("Containers", formatQuantity(roundTo(containers, 2))) : ""}</div>
-    </details>`;
+    <div class="recipe-detail-layout">
+      <section class="recipe-detail-ingredients">
+        <h3>Ingredients · ${recipe.ingredients.length}</h3>
+        <ul class="ingredient-checklist">
+          ${recipe.ingredients
+            .map((ingredient, index) => {
+              const { amount, name } = recipeIngredientParts(ingredient);
+              return `
+                <li>
+                  <label>
+                    <input type="checkbox" data-ingredient-check="${index}"${checks.has(String(index)) ? " checked" : ""} />
+                    <span class="check-box" aria-hidden="true"></span>
+                    <span class="ingredient-checklist-amount">${escapeHtml(amount || "")}</span>
+                    <span class="ingredient-checklist-name">${escapeHtml(name)}</span>
+                  </label>
+                </li>`;
+            })
+            .join("")}
+        </ul>
+      </section>
+      <section class="recipe-detail-method">
+        <h3>Method · ${steps.length}</h3>
+        ${steps.length
+          ? `<ol class="method-steps">${steps
+              .map((step, index) => `<li><span class="method-number" aria-hidden="true">${index + 1}</span><p>${highlightIngredientMentions(step, recipe)}</p></li>`)
+              .join("")}</ol>`
+          : '<p class="empty-state">No instructions added yet.</p>'}
+        <details class="recipe-totals nutrition-only">
+          <summary>Nutrition for the whole recipe</summary>
+          <div class="macro-row">${nutrientChips(macros)}${catalogItems(recipe).length ? macroChip("Containers", formatQuantity(roundTo(containers, 2))) : ""}</div>
+        </details>
+      </section>
+    </div>`;
+}
+
+// ---------------------------------------------------------------- add to plan
+let addPlanRecipe = null;
+let addPlanWeekStart = null;
+
+function openAddToPlan(recipe) {
+  const dialog = document.getElementById("add-plan-dialog");
+  addPlanRecipe = recipe;
+  addPlanWeekStart = new Date(selectedWeekStart);
+  const meal = meals.includes(recipe.category) ? recipe.category : "Dinner";
+  document.getElementById("add-plan-meal").innerHTML = meals.map((name) => optionMarkup(name, name, meal)).join("");
+  document.getElementById("add-plan-recipe").textContent = recipe.name;
+  const planner = ensureActivePlanner();
+  document.getElementById("add-plan-planner").textContent = planner ? planner.name : "No planner selected";
+  renderAddToPlan(true);
+  dialog.showModal();
+}
+
+function renderAddToPlan(pickDay = false) {
+  const daySelect = document.getElementById("add-plan-day");
+  const todayKey = dateKey(new Date());
+  const current = pickDay ? "" : daySelect.value;
+  // Default to today when it is in view, otherwise the first open slot.
+  const todayIndex = days.findIndex((day, index) => dateKey(addDays(addPlanWeekStart, index)) === todayKey);
+  const chosen = current || days[Math.max(todayIndex, 0)];
+  daySelect.innerHTML = days
+    .map((day, index) => optionMarkup(day, `${day}, ${formatDayDate(addDays(addPlanWeekStart, index))}`, chosen))
+    .join("");
+  document.getElementById("add-plan-week-label").textContent = formatWeekSpan(addPlanWeekStart, addDays(addPlanWeekStart, 6));
+  updateAddToPlanNote();
+}
+
+function updateAddToPlanNote() {
+  const note = document.getElementById("add-plan-note");
+  const submit = document.getElementById("add-plan-submit");
+  const planner = activePlanner();
+  if (!planner) {
+    note.textContent = "Create or join a planner on the Plan page first.";
+    submit.disabled = true;
+    return;
+  }
+  submit.disabled = !canWriteCloudData();
+  const plan = planner.plans[dateKey(addPlanWeekStart)];
+  const existing = plan?.[document.getElementById("add-plan-day").value]?.[document.getElementById("add-plan-meal").value];
+  const summary = existing ? slotSummary(existing) : null;
+  note.textContent = summary && summary.kind !== "empty" ? `Replaces ${summary.label}.` : "";
+}
+
+function setupAddToPlan() {
+  const dialog = document.getElementById("add-plan-dialog");
+  document.getElementById("add-plan-previous").addEventListener("click", () => {
+    addPlanWeekStart = addDays(addPlanWeekStart, -7);
+    renderAddToPlan();
+  });
+  document.getElementById("add-plan-next").addEventListener("click", () => {
+    addPlanWeekStart = addDays(addPlanWeekStart, 7);
+    renderAddToPlan();
+  });
+  document.getElementById("add-plan-day").addEventListener("change", updateAddToPlanNote);
+  document.getElementById("add-plan-meal").addEventListener("change", updateAddToPlanNote);
+  document.getElementById("add-plan-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("add-plan-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const planner = activePlanner();
+    if (!planner || !addPlanRecipe || !requireCloudWrite()) return;
+    const key = dateKey(addPlanWeekStart);
+    if (!planner.plans[key]) planner.plans[key] = blankPlan();
+    planner.plans[key][document.getElementById("add-plan-day").value][document.getElementById("add-plan-meal").value] = addPlanRecipe.id;
+    saveState();
+    renderAll();
+    dialog.close();
+  });
 }
 
 function renderPlannerControls() {
@@ -1557,9 +1719,7 @@ function recipeIngredientAmounts(recipe) {
 
 function mentionMarkup(text, amount) {
   if (!amount) return escapeHtml(text);
-  return `<span class="ingredient-mention" role="button" tabindex="0" aria-label="${escapeHtml(text)}: ${escapeHtml(amount)}">${escapeHtml(
-    text
-  )}<span class="ingredient-amount" role="tooltip">${escapeHtml(amount)}</span></span>`;
+  return `<span class="ingredient-mention">${escapeHtml(text)}<span class="ingredient-mention-amount"> · ${escapeHtml(amount)}</span></span>`;
 }
 
 function highlightIngredientMentions(step, recipe) {
@@ -1858,34 +2018,35 @@ function formatMacro(value) {
 
 function renderGroceries() {
   const groceries = new Map();
-  upcomingPlannedRecipes().forEach((recipe) => {
+  const recipes = upcomingPlannedRecipes();
+  recipes.forEach((recipe) => {
     recipe.ingredients.forEach((ingredient) => {
       const parsed = parseRecipeIngredient(ingredient);
       if (!parsed) return;
 
       const existing = groceries.get(parsed.key);
-      if (existing && existing.unit === parsed.unit && parsed.quantity) {
-        existing.quantity += parsed.quantity;
-        return;
-      }
-
       if (existing) {
-        existing.count += 1;
+        existing.from.add(recipe.name);
+        if (existing.unit === parsed.unit && parsed.quantity) existing.quantity += parsed.quantity;
+        else existing.count += 1;
         return;
       }
 
-      groceries.set(parsed.key, parsed);
+      groceries.set(parsed.key, { ...parsed, from: new Set([recipe.name]) });
     });
   });
 
+  renderGroceryHeader(recipes.length);
   const groceryList = document.getElementById("grocery-list");
   if (!groceries.size) {
     groceryList.innerHTML = '<p class="empty-state">Plan meals for this week or later and your grocery list will appear here.</p>';
+    updateGroceryTally();
     return;
   }
 
+  const checked = groceryChecks();
   groceryList.innerHTML = `
-    <ul class="grocery-grid">
+    <ul class="grocery-rows">
       ${[...groceries.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((item) => {
@@ -1893,36 +2054,90 @@ function renderGroceries() {
           const ingredient = state.ingredients[item.key] || findIngredient(item.name);
           const link = safeLinkUrl(ingredient?.url) || walmartSearchUrl(item.name);
           const saved = Boolean(safeLinkUrl(ingredient?.url));
-          const image = ingredient ? ingredientImage(ingredient) : "";
           const perContainer = item.servingsPerContainer || ingredient?.servingsPerContainer;
           const containers = perContainer && item.quantity ? containersForServings(item.quantity, perContainer) : 0;
-          const initial = escapeHtml(item.name.slice(0, 1).toUpperCase());
-          const visual = image
-            ? `<span class="grocery-card-visual has-image"><span class="grocery-card-initial">${initial}</span><img class="grocery-card-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(item.name)}" /></span>`
-            : `<span class="grocery-card-visual"><span class="grocery-card-initial">${initial}</span></span>`;
           // Shown, never subtracted: stock can be out of date, and a wrong
           // grocery amount is worse than a redundant one.
           const stocked = stockedFor(item.key, item.name);
+          const notes = [
+            [...item.from].join(", "),
+            containers ? `buy ${Math.ceil(containers)} ${pluralizeUnit(containerUnit(ingredient), Math.ceil(containers))}` : "",
+            stocked ? `${kitchenStockAmountText(stocked)} in your kitchen` : ""
+          ].filter(Boolean);
+          const isChecked = checked.has(item.key);
           return `
-            <li class="grocery-card${stocked ? " is-stocked" : ""}" data-grocery-text="${escapeHtml(text)}">
-              ${visual}
-              <div class="grocery-card-body">
-                <strong class="grocery-card-name">${escapeHtml(item.name)}</strong>
-                <span class="grocery-card-amount">${escapeHtml(groceryAmountText(item))}</span>
-                ${stocked ? `<span class="grocery-card-stock">In kitchen: ${escapeHtml(kitchenStockAmountText(stocked))}</span>` : ""}
-                ${containers
-                  ? `<span class="grocery-card-buy"><b>Buy ${Math.ceil(containers)}</b> · needs ${escapeHtml(formatContainers(containers, ingredient))}</span>`
-                  : ""}
-              </div>
-              <a class="grocery-card-link ${saved ? "is-product" : "is-search"}" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">
-                <span class="grocery-card-link-label">${saved ? "Open product" : "Search Walmart"}</span>
-                <span class="grocery-card-link-url">${escapeHtml(linkDisplayUrl(link))}</span>
-              </a>
+            <li class="grocery-row${stocked ? " is-stocked" : ""}" data-grocery-text="${escapeHtml(text)}" data-checked="${isChecked}">
+              <label class="grocery-row-check">
+                <input type="checkbox" data-grocery-key="${escapeHtml(item.key)}"${isChecked ? " checked" : ""} />
+                <span class="check-box" aria-hidden="true"></span>
+                <span class="grocery-row-text">
+                  <strong class="grocery-row-name">${escapeHtml(item.name.charAt(0).toUpperCase() + item.name.slice(1))}</strong>
+                  <span class="grocery-row-from">${escapeHtml(notes.join(" · "))}</span>
+                </span>
+              </label>
+              <span class="grocery-row-amount">${escapeHtml(groceryAmountText(item))}</span>
+              <a class="grocery-row-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer" title="${saved ? "Open the saved Walmart product" : "Search Walmart"}">Walmart <span aria-hidden="true">↗</span></a>
             </li>`;
         })
         .join("")}
     </ul>`;
-  setupCloudImageDiagnostics(groceryList);
+  groceryList.querySelectorAll("[data-grocery-key]").forEach((box) => {
+    box.addEventListener("change", () => {
+      const checks = groceryChecks();
+      if (box.checked) checks.add(box.dataset.groceryKey);
+      else checks.delete(box.dataset.groceryKey);
+      saveGroceryChecks(checks);
+      box.closest(".grocery-row").dataset.checked = String(box.checked);
+      updateGroceryTally();
+    });
+  });
+  updateGroceryTally();
+}
+
+// The list covers this week and every later week with meals planned.
+function renderGroceryHeader(mealCount) {
+  const planner = ensureActivePlanner();
+  const start = getWeekStart(new Date());
+  const thisWeekKey = dateKey(start);
+  const lastKey = planner
+    ? Object.entries(planner.plans)
+        .filter(([key, plan]) => key >= thisWeekKey && days.some((day) => meals.some((meal) => plan[day]?.[meal])))
+        .map(([key]) => key)
+        .sort()
+        .pop()
+    : "";
+  const lastStart = lastKey ? new Date(`${lastKey}T00:00:00`) : start;
+  document.getElementById("groceries-range").textContent = formatWeekSpan(start, addDays(lastStart, 6));
+  document.getElementById("groceries-view").dataset.meals = String(mealCount);
+}
+
+function updateGroceryTally() {
+  const rows = [...document.querySelectorAll("#grocery-list .grocery-row")];
+  const left = rows.filter((row) => row.dataset.checked !== "true").length;
+  const meals = Number(document.getElementById("groceries-view").dataset.meals || 0);
+  document.getElementById("grocery-left").textContent = String(left);
+  document.getElementById("grocery-left-label").textContent = `left to buy · from ${meals} meal${meals === 1 ? "" : "s"}`;
+}
+
+// Ticked-off groceries are a shopping-trip convenience, so they stay on this device.
+function groceryChecksKey() {
+  return `recipe-grocery-checks:${currentHouseholdId || "local"}:${activePlannerId || ""}`;
+}
+
+function groceryChecks() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(groceryChecksKey()) || "[]"));
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function saveGroceryChecks(checks) {
+  try {
+    localStorage.setItem(groceryChecksKey(), JSON.stringify([...checks]));
+  } catch (error) {
+    // Checks still work for this visit when storage is unavailable.
+  }
 }
 
 // "2 cups" for measured items, "x3" when the same item shows up in several recipes.
@@ -3271,18 +3486,34 @@ function macroCard(label, value, className = "") {
 
 function renderWeekLabels() {
   const end = addDays(selectedWeekStart, 6);
-  const range = formatWeekRange(selectedWeekStart, end);
-  const relative = isCurrentWeek() ? "This week" : "Selected week";
-  document.getElementById("week-range").textContent = range;
-  document.getElementById("week-relative").textContent = relative;
+  const thisWeek = getWeekStart(new Date());
+  const weeksAway = Math.round((selectedWeekStart - thisWeek) / (7 * 24 * 60 * 60 * 1000));
+  const relative = weeksAway === 0
+    ? "This week"
+    : weeksAway === 1
+      ? "Next week"
+      : weeksAway === -1
+        ? "Last week"
+        : `Week of ${formatDayDate(selectedWeekStart)}`;
+  document.getElementById("planner-title").textContent = relative;
+  document.getElementById("week-range").textContent = formatWeekSpan(selectedWeekStart, end);
   document.getElementById("week-sidebar-title").textContent = relative;
   document.getElementById("current-week").disabled = isCurrentWeek();
+}
+
+// "Oct 5 – 11", or "Sep 29 – Oct 5" across a month boundary. The year only shows
+// when the week is not in the current one.
+function formatWeekSpan(start, end) {
+  const year = start.getFullYear() !== new Date().getFullYear() ? `, ${end.getFullYear()}` : "";
+  const sameMonth = start.getMonth() === end.getMonth();
+  return `${formatDayDate(start)} – ${sameMonth ? end.getDate() : formatDayDate(end)}${year}`;
 }
 
 function renderPlannedCount() {
   const count = plannedSlotValues().length;
   const total = days.length * meals.length;
   document.getElementById("planned-count").textContent = `${count} meal${count === 1 ? "" : "s"} planned`;
+  document.getElementById("planner-view").dataset.plannedCount = String(count);
   document.getElementById("week-progress-label").textContent = `${count} of ${total} meals planned`;
   document.getElementById("week-progress-fill").style.width = `${Math.round((count / total) * 100)}%`;
   document.getElementById("week-progress").dataset.complete = String(count === total);
@@ -3366,7 +3597,6 @@ function setupForms() {
     showRecipesView();
   });
 
-  document.getElementById("category-filter").addEventListener("change", renderRecipeEditor);
   document.getElementById("recipe-search").addEventListener("input", () => {
     openRecipeId = null;
     renderRecipes();
@@ -3375,9 +3605,33 @@ function setupForms() {
     openRecipeId = null;
     showRecipeEditor();
   });
-  document.getElementById("close-recipe-editor").addEventListener("click", () => {
+  const leaveRecipeEditor = () => {
     resetRecipeForm();
     showRecipesView();
+  };
+  document.getElementById("close-recipe-editor").addEventListener("click", leaveRecipeEditor);
+  document.getElementById("cancel-recipe-edit").addEventListener("click", leaveRecipeEditor);
+  document.getElementById("delete-recipe").addEventListener("click", () => {
+    if (!requireCloudWrite()) return;
+    const id = document.getElementById("recipe-form").dataset.editingId;
+    const recipe = id ? recipeById(id) : null;
+    if (!recipe || !window.confirm(`Delete ${recipe.name}? It also comes off every planned meal.`)) return;
+    resetRecipeForm();
+    deleteRecipe(id);
+    openRecipeId = null;
+    showRecipesView();
+  });
+  document.querySelectorAll("[data-servings-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = document.getElementById("recipe-servings");
+      input.value = Math.max(1, (Number(input.value) || 1) + Number(button.dataset.servingsStep));
+      refreshRecipeMacroPreview();
+    });
+  });
+  document.getElementById("recipe-servings").addEventListener("input", refreshRecipeMacroPreview);
+  document.getElementById("back-to-recipe-editor").addEventListener("click", () => {
+    returnToRecipeEditor = false;
+    activateAppView("recipe-editor", "recipes");
   });
   document.getElementById("recipe-photo").addEventListener("change", async (event) => {
     const blob = await readPhotoSelection(event, RECIPE_PHOTO_MAX_WIDTH, setRecipePhotoMessage);
@@ -3408,7 +3662,6 @@ function setupForms() {
       setRecipeFormSection(section, section.dataset.open !== "true");
     });
   });
-  document.getElementById("cancel-recipe-edit").addEventListener("click", resetRecipeForm);
   document.addEventListener("click", (event) => {
     if (event.target.closest(".ingredient-mention")) return;
     document.querySelectorAll('.ingredient-mention[data-open="true"]').forEach((mention) => delete mention.dataset.open);
@@ -3467,6 +3720,10 @@ function setupForms() {
     setIngredientPhotoMessage(OPTIONAL_PHOTO_MESSAGE);
     renderIngredientPhotoPreview();
     renderAll();
+    if (returnToRecipeEditor) {
+      returnToRecipeEditor = false;
+      activateAppView("recipe-editor", "recipes");
+    }
 
     authEls.syncStatus.textContent = "Saving";
     setAccountStatus("checking", "Signed in", "Saving to Firebase...");
@@ -3636,11 +3893,11 @@ function addRecipeStepRow(value = "") {
         <span class="recipe-step-tag-hint"></span>
       </span>
     </label>
-    <button class="danger-button" type="button">Remove</button>`;
+    <button class="row-remove" type="button" aria-label="Remove step" title="Remove">×</button>`;
 
   bindStepIngredientTagger(row);
 
-  row.querySelector(".danger-button").addEventListener("click", () => {
+  row.querySelector(".row-remove").addEventListener("click", () => {
     row.remove();
     if (!container.children.length) addRecipeStepRow();
     updateRecipeStepNumbers();
@@ -3776,7 +4033,7 @@ function fillRecipeForm(recipe) {
   recipeDraftNutrition = null;
   recipeDraftImage = safeImageUrl(recipe.image);
   document.getElementById("recipe-photo").value = "";
-  setRecipePhotoMessage(recipeDraftImage ? "Photo attached." : OPTIONAL_PHOTO_MESSAGE);
+  setRecipePhotoMessage("");
   renderRecipePhotoPreview();
 
   const ingredientRows = document.getElementById("recipe-ingredient-rows");
@@ -3789,8 +4046,11 @@ function fillRecipeForm(recipe) {
   (steps.length ? steps : [""]).forEach((step) => addRecipeStepRow(step));
 
   document.getElementById("save-recipe").textContent = "Save changes";
-  document.getElementById("cancel-recipe-edit").hidden = false;
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("recipe-editor-title").textContent = "Edit recipe";
+  document.getElementById("recipe-editor-back-label").textContent = recipe.name || "Recipe";
+  document.getElementById("delete-recipe").hidden = false;
+  refreshRecipeMacroPreview();
+  window.scrollTo({ top: 0 });
   // Focusing the name pops the keyboard open on a phone before the cook has
   // even seen the recipe, so only wider layouts get the head start.
   if (!isNarrowLayout()) document.getElementById("recipe-name").focus({ preventScroll: true });
@@ -3806,12 +4066,14 @@ function resetRecipeForm() {
   addRecipeIngredientRow();
   addRecipeStepRow();
   document.getElementById("save-recipe").textContent = "Add recipe";
-  document.getElementById("cancel-recipe-edit").hidden = true;
+  document.getElementById("recipe-editor-title").textContent = "New recipe";
+  document.getElementById("recipe-editor-back-label").textContent = "All recipes";
+  document.getElementById("delete-recipe").hidden = true;
   clearRecipePhotoDraft();
   recipeDraftNutrition = null;
   recipeDraftImage = "";
   document.getElementById("recipe-photo").value = "";
-  setRecipePhotoMessage(OPTIONAL_PHOTO_MESSAGE);
+  setRecipePhotoMessage("");
   renderRecipePhotoPreview();
 }
 
@@ -3942,26 +4204,25 @@ function addRecipeIngredientRow(item = {}) {
   const formValue = recipeIngredientFormValue(item);
   row.innerHTML = `
     ${dragHandleMarkup("Reorder ingredient")}
+    <label class="recipe-ingredient-field recipe-ingredient-quantity-field">
+      <span class="visually-hidden">Amount</span>
+      <input class="recipe-ingredient-quantity" required type="text" inputmode="text" autocomplete="off" placeholder="1 1/2" value="${escapeHtml(formatQuantity(formValue.quantity))}" />
+    </label>
+    <label class="recipe-ingredient-field recipe-ingredient-unit-field">
+      <span class="visually-hidden">Unit</span>
+      <select class="recipe-ingredient-measure" data-initial-measure="${escapeHtml(formValue.measure)}"></select>
+    </label>
     <div class="ingredient-picker">
       <label>
-        Ingredient
+        <span class="visually-hidden">Ingredient</span>
         <input class="recipe-ingredient-search" required placeholder="Search ingredients" autocomplete="off"
           role="combobox" aria-expanded="false" aria-autocomplete="list" value="${escapeHtml(formValue.name)}" />
       </label>
+      <span class="ingredient-flag" title="Not in your ingredient index" aria-hidden="true">!</span>
       <div class="ingredient-picker-results" role="listbox" hidden></div>
     </div>
-    <div class="recipe-ingredient-amount">
-      <label>
-        Quantity
-        <input class="recipe-ingredient-quantity" required type="text" inputmode="text" autocomplete="off" placeholder="1 1/2" value="${escapeHtml(formatQuantity(formValue.quantity))}" />
-      </label>
-      <label>
-        Unit
-        <select class="recipe-ingredient-measure" data-initial-measure="${escapeHtml(formValue.measure)}"></select>
-      </label>
-    </div>
-    <span class="recipe-ingredient-serving">Choose an ingredient</span>
-    <button class="danger-button" type="button">Remove</button>`;
+    <button class="row-remove" type="button" aria-label="Remove ingredient" title="Remove">×</button>
+    <p class="recipe-ingredient-serving"></p>`;
 
   const search = row.querySelector(".recipe-ingredient-search");
   const quantity = row.querySelector(".recipe-ingredient-quantity");
@@ -3989,9 +4250,14 @@ function addRecipeIngredientRow(item = {}) {
     updateRecipeIngredientRow(row);
     refreshRecipeMacroPreview();
   });
-  row.querySelector(".danger-button").addEventListener("click", () => {
+  row.querySelector(".row-remove").addEventListener("click", () => {
     row.remove();
+    if (!container.children.length) addRecipeIngredientRow();
     refreshRecipeMacroPreview();
+  });
+  row.querySelector(".recipe-ingredient-serving").addEventListener("click", (event) => {
+    if (!event.target.closest("[data-add-to-index]")) return;
+    openIngredientIndexFor(search.value.trim());
   });
   container.append(row);
   makeRowsSortable(container, { item: ".recipe-ingredient-row", onReorder: refreshRecipeMacroPreview });
@@ -4119,7 +4385,14 @@ function updateRecipeIngredientRow(row) {
   select.value = measure;
   const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
   const servingCount = ingredient ? recipeItemServingCount({ quantity, measure }, ingredient) : 0;
-  row.querySelector(".recipe-ingredient-serving").textContent = ingredient
+  const unlinked = !ingredient && Boolean(name.trim());
+  row.dataset.unlinked = String(unlinked);
+  const hint = row.querySelector(".recipe-ingredient-serving");
+  if (unlinked) {
+    hint.innerHTML = `${escapeHtml(name.trim())} isn't in your ingredient index yet. <button class="inline-link" type="button" data-add-to-index>Add it</button>`;
+    return;
+  }
+  hint.textContent = ingredient
     ? measure === "container"
       ? `${formatQuantity(servingsPerContainer(ingredient))} servings per ${containerUnit(ingredient)}`
       : measure === "serving"
@@ -4185,9 +4458,26 @@ function containersForIngredientRows(items) {
 function refreshRecipeMacroPreview() {
   const items = collectRecipeIngredients(true) || [];
   const macros = macrosForIngredientRows(items);
-  const containers = containersForIngredientRows(items);
-  document.getElementById("recipe-macro-preview").innerHTML =
-    nutrientChips(macros, "label") + macroChip("Containers", formatQuantity(roundTo(containers, 2)));
+  const servings = Math.max(1, Number(document.getElementById("recipe-servings").value) || 1);
+  const tile = (value, label) => `<div class="nutrition-tile"><strong>${value}</strong><span>${label}</span></div>`;
+  document.getElementById("recipe-macro-preview").innerHTML = [
+    tile(formatMacro(Math.round(macros.calories / servings)), "kcal"),
+    tile(`${formatMacro(Math.round(macros.protein / servings))} g`, "protein"),
+    tile(`${formatMacro(Math.round(macros.carbs / servings))} g`, "carbs"),
+    tile(`${formatMacro(Math.round(macros.fat / servings))} g`, "fat")
+  ].join("");
+}
+
+// "Add it" on an unknown ingredient: jump to the index with the name filled in,
+// and come back to the recipe once it is saved.
+function openIngredientIndexFor(name) {
+  returnToRecipeEditor = true;
+  activateAppView("ingredients", "kitchen-stock");
+  document.getElementById("back-to-recipe-editor").hidden = false;
+  const input = document.getElementById("ingredient-name");
+  input.value = name;
+  window.scrollTo({ top: 0 });
+  input.focus({ preventScroll: true });
 }
 
 function refreshRecipeIngredientRows() {
@@ -4369,7 +4659,7 @@ function readNutrientInputs() {
 }
 
 function getGroceryTexts() {
-  return [...document.querySelectorAll("#grocery-list [data-grocery-text]")].map((item) => item.dataset.groceryText);
+  return [...document.querySelectorAll('#grocery-list [data-grocery-text]:not([data-checked="true"])')].map((item) => item.dataset.groceryText);
 }
 
 function setupAuth() {
@@ -4399,8 +4689,9 @@ function setupAuth() {
   document.getElementById("open-profile").addEventListener("click", openProfileDialog);
   document.getElementById("mobile-open-settings").addEventListener("click", openProfileDialog);
   document.getElementById("sidebar-open-settings").addEventListener("click", openProfileDialog);
-  document.getElementById("cancel-profile").addEventListener("click", () => authEls.profileDialog.close());
-  document.getElementById("close-profile-dialog").addEventListener("click", () => authEls.profileDialog.close());
+  document.getElementById("cancel-profile").addEventListener("click", closeSettings);
+  document.getElementById("close-profile-dialog").addEventListener("click", closeSettings);
+  setupSettingsPage();
   document.getElementById("save-profile").addEventListener("click", saveProfile);
   document.getElementById("remove-profile-photo").addEventListener("click", () => {
     profileDraftPhoto = "";
@@ -4419,7 +4710,7 @@ function setupAuth() {
   });
   document.getElementById("settings-sign-out").addEventListener("click", async () => {
     if (!cloud) return;
-    authEls.profileDialog.close();
+    closeSettings();
     await cloud.signOut(cloud.auth);
   });
   document.getElementById("setup-sign-out").addEventListener("click", async () => {
@@ -4467,7 +4758,7 @@ async function leaveHousehold() {
     cloudDataLoaded = false;
     state = createSignedOutState();
     authEls.householdCode.textContent = "Loading...";
-    authEls.profileDialog.close();
+    closeSettings();
     showHouseholdSetup(user);
     setHouseholdMessage("You left the household. Create another household or paste an invite code to join one.");
     renderAll();
@@ -4573,6 +4864,7 @@ function subscribeToAccessManagement() {
   const uid = cloud?.auth.currentUser?.uid;
   const canManage = uid === ACCESS_ADMIN_UID && uid === householdOwnerUid;
   authEls.accessManagement.hidden = !canManage;
+  document.getElementById("access-management-link").hidden = !canManage;
   if (!canManage || unsubscribeAccessRequests || unsubscribeApprovedUsers) return;
 
   unsubscribeAccessRequests = cloud.onSnapshot(cloud.collection(cloud.db, "accessRequests"), (snapshot) => {
@@ -4598,6 +4890,7 @@ function clearAccessManagement() {
   accessRequests = [];
   approvedUsers = [];
   if (authEls.accessManagement) authEls.accessManagement.hidden = true;
+  document.getElementById("access-management-link").hidden = true;
 }
 
 function renderAccessManagement() {
@@ -4633,7 +4926,7 @@ function accessUserMarkup(user, action) {
     ? `<button class="primary-button" data-approve-user="${escapeHtml(user.uid)}" type="button">Approve</button>`
     : action === "revoke"
       ? `<button class="danger-button" data-revoke-user="${escapeHtml(user.uid)}" type="button">Revoke</button>`
-      : '<span class="member-badge">Owner</span>';
+      : '<span class="owner-badge">Owner</span>';
   return `
     <div class="access-user-row">
       <span><strong>${escapeHtml(accessUserLabel(user))}</strong><small>${escapeHtml(detail)}</small></span>
@@ -4786,7 +5079,69 @@ function openProfileDialog() {
   setProfileMessage("");
   authEls.settingsHouseholdMessage.textContent = "";
   renderProfilePreview();
-  authEls.profileDialog.showModal();
+  syncAppearanceControls();
+  if (!authEls.profileDialog.classList.contains("active")) settingsReturnView = currentAppView();
+  activateAppView("settings", "settings");
+  window.scrollTo({ top: 0 });
+}
+
+function closeSettings() {
+  if (!authEls.profileDialog?.classList.contains("active")) return;
+  const back = settingsReturnView || { view: "planner", tab: "planner" };
+  settingsReturnView = null;
+  activateAppView(back.view, back.tab);
+}
+
+function setupSettingsPage() {
+  document.querySelectorAll('input[name="theme-mode"]').forEach((input) => {
+    input.addEventListener("change", () => applyAppearance({ mode: input.value }));
+  });
+  document.querySelectorAll('input[name="color-theme"]').forEach((input) => {
+    input.addEventListener("change", () => applyAppearance({ theme: input.value }));
+  });
+
+  const links = [...document.querySelectorAll("[data-settings-link]")];
+  const setActive = (id) => links.forEach((link) => link.classList.toggle("active", link.dataset.settingsLink === id));
+  links.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      setActive(link.dataset.settingsLink);
+      document.getElementById(link.dataset.settingsLink)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: "-90px 0px -55% 0px" }
+    );
+    document.querySelectorAll("#settings-view .settings-section").forEach((section) => observer.observe(section));
+  }
+}
+
+// Light, dark or follow the system, plus a colour theme. Per device, applied
+// before first paint by the inline script in index.html.
+function applyAppearance({ mode, theme }) {
+  const root = document.documentElement;
+  if (mode) root.dataset.themeMode = mode;
+  if (theme) root.dataset.colorTheme = theme;
+  try {
+    if (mode) localStorage.setItem("recipe-theme-mode", mode);
+    if (theme) localStorage.setItem("recipe-color-theme", theme);
+  } catch (error) {
+    // The choice still applies for this visit.
+  }
+  syncAppearanceControls();
+}
+
+function syncAppearanceControls() {
+  const root = document.documentElement;
+  const mode = root.dataset.themeMode || "light";
+  const theme = root.dataset.colorTheme || "petal";
+  document.querySelectorAll('input[name="theme-mode"]').forEach((input) => (input.checked = input.value === mode));
+  document.querySelectorAll('input[name="color-theme"]').forEach((input) => (input.checked = input.value === theme));
 }
 
 function renderProfilePreview() {
@@ -4851,7 +5206,7 @@ async function saveProfile() {
     authEls.accountEmail.textContent = displayName;
     hideNutritionPreference = profile.hideNutrition;
     applyNutritionVisibility();
-    authEls.profileDialog.close();
+    closeSettings();
   } catch (error) {
     setProfileMessage("Could not save your profile: " + error.message);
   }
@@ -5347,6 +5702,8 @@ function updateDataControls() {
     "[data-cook-recipe]",
     "[data-undo-cook]",
     "#log-cooked",
+    "[data-add-to-plan]",
+    "#delete-recipe",
     "[data-delete-ingredient]",
     "[data-edit-ingredient]",
     "[data-delete-stock]",
@@ -5383,6 +5740,7 @@ function escapeHtml(value) {
 
 renderTabs();
 setupCookDialog();
+setupAddToPlan();
 setupPlannerLayout();
 setupForms();
 setupRecipeImport();
