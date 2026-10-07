@@ -1,7 +1,7 @@
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const meals = ["Breakfast", "Lunch", "Dinner"];
 const TAKEOUT_PREFIX = "takeout:";
-const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
+const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
 const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
 const PHOTO_DECODE_TIMEOUT = 20000;
@@ -166,7 +166,7 @@ function containerUnit(source) {
   return containerUnits.includes(value) ? value : "container";
 }
 
-const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side"];
+const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
 
 const authEls = {
   appShell: document.getElementById("app-shell"),
@@ -1108,16 +1108,16 @@ function unitOptionsMarkup({ selected = "", lead = "", compatibleWith = "", extr
   return lead + groups + custom + other;
 }
 
-// The six built-in categories plus any others the saved recipes actually use, so
+// The built-in categories plus any others the saved recipes actually use, so
 // an imported "Brunch" survives instead of being coerced to Dinner.
 function recipeCategories() {
   const used = state.recipes.map((recipe) => recipe.category).filter(Boolean);
   return [...new Set([...defaultRecipeCategories, ...used])].sort((a, b) => a.localeCompare(b));
 }
 
-// Meal slots are for meals: desserts stay out of the picker, except one that is
+// Meal slots are for meals: desserts and drinks stay out of the picker, except one that is
 // already planned so an existing week never loses its selection.
-const plannerExcludedCategories = new Set(["Dessert"]);
+const plannerExcludedCategories = new Set(["Dessert", "Drink", "Drinks"]);
 
 function plannerRecipeOptionList(selectedId) {
   return state.recipes.filter((recipe) => recipe.id === selectedId || !plannerExcludedCategories.has(recipe.category));
@@ -1315,6 +1315,7 @@ function recipeCatalogueCard(recipe) {
   return `
     <button class="recipe-catalogue-card${coverage.ready ? " is-ready" : ""}" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
       ${recipeCatalogueVisual(recipe)}
+      ${unlinkedIngredientAlert(recipe)}
       <span class="recipe-catalogue-body">
         <span class="recipe-catalogue-tags">
           <span class="category-pill">${escapeHtml(recipe.category)}</span>
@@ -1325,6 +1326,20 @@ function recipeCatalogueCard(recipe) {
       </span>
       <span class="recipe-catalogue-open">View recipe →</span>
     </button>`;
+}
+
+// Typed-in ingredients (and links to ingredients since deleted) carry no
+// nutrition or stock data, so flag the recipe until they are added to the list.
+function unlinkedIngredients(recipe) {
+  return (recipe.ingredients || []).filter((item) => item && (typeof item === "string" || !state.ingredients[item.key]));
+}
+
+function unlinkedIngredientAlert(recipe) {
+  const unlinked = unlinkedIngredients(recipe);
+  if (!unlinked.length) return "";
+  const names = unlinked.map((item) => recipeIngredientParts(item).name || item.name || "Ingredient");
+  const label = `${unlinked.length} ingredient${unlinked.length === 1 ? "" : "s"} not in your ingredient list: ${names.join(", ")}`;
+  return `<span class="recipe-unlinked-alert" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">!</span>`;
 }
 
 // Silent until there is stock to compare against, so an empty kitchen does not
@@ -1643,8 +1658,32 @@ function formatUnitQuantity(quantity, unit) {
 function amountParts(quantity, unit) {
   return {
     text: `${formatUnitQuantity(quantity, unit)} ${pluralizeUnit(unit, quantity)}`.replace(/\s+/g, " ").trim(),
-    unit: normalizeMeasurementUnit(unit)
+    unit: normalizeMeasurementUnit(unit),
+    quantity: Number(quantity || 0)
   };
+}
+
+// "5 pieces Potato" reads better as "5 potatoes": a plain count names the
+// ingredient itself, pluralised when there is more than one.
+const pluralNameExceptions = { potato: "potatoes", tomato: "tomatoes", leaf: "leaves", loaf: "loaves", knife: "knives", mouse: "mice", goose: "geese" };
+
+function pluralizeName(name, quantity) {
+  const text = String(name || "").trim();
+  if (!text || roundTo(Number(quantity || 0), 2) <= 1) return text;
+  const match = text.match(/^(.*?)([A-Za-z]+)$/);
+  if (!match) return text;
+  const [, head, word] = match;
+  const lower = word.toLowerCase();
+  let plural;
+  if (pluralNameExceptions[lower]) plural = pluralNameExceptions[lower];
+  else if (/s$/.test(lower)) return text;
+  else if (/[^aeiou]y$/.test(lower)) plural = `${lower.slice(0, -1)}ies`;
+  else if (/(?:x|z|ch|sh)$/.test(lower)) plural = `${lower}es`;
+  else plural = `${lower}s`;
+  // Keep the original word's capitalisation.
+  const cased = word === word.toUpperCase() && word.length > 1 ? plural.toUpperCase()
+    : word[0] === word[0].toUpperCase() ? plural[0].toUpperCase() + plural.slice(1) : plural;
+  return `${head}${cased}`;
 }
 
 // "<amount> <unit> <name>", with the name dropped when the unit already names it.
@@ -1731,6 +1770,9 @@ function recipeIngredientParts(item) {
   const ingredient = state.ingredients[item.key] || item;
   const name = ingredient.name || "Ingredient";
   const amount = recipeIngredientAmountParts(item, ingredient);
+  if (amount.unit === "piece") {
+    return { amount: formatUnitQuantity(amount.quantity, amount.unit), name: pluralizeName(name, amount.quantity) };
+  }
   // An "egg" unit already names the ingredient, so "2 eggs Egg" becomes "2 eggs".
   return { amount: amount.text, name: unitNamesIngredient(amount.unit, name) ? "" : name };
 }
@@ -2695,6 +2737,14 @@ const importCategoryMap = {
   baking: "Dessert",
   snack: "Snack",
   snacks: "Snack",
+  drink: "Drink",
+  drinks: "Drink",
+  beverage: "Drink",
+  beverages: "Drink",
+  cocktail: "Drink",
+  cocktails: "Drink",
+  smoothie: "Drink",
+  smoothies: "Drink",
   appetizer: "Side",
   appetizers: "Side",
   "side dish": "Side",
