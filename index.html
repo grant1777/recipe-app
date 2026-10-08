@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261007-37" />
+    <link rel="stylesheet" href="styles.css?v=20261007-38" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -150,9 +150,10 @@
                 <span class="visually-hidden">Search recipes</span>
                 <input id="recipe-search" type="search" placeholder="Search recipes or ingredients" autocomplete="off" />
               </label>
-              <button class="primary-button" id="open-recipe-editor" type="button">
+              <button class="primary-button" id="open-recipe-editor" type="button" aria-label="New recipe">
                 <span class="wide-label">+ New recipe</span>
                 <span class="narrow-label">+ New</span>
+                <span class="phone-label" aria-hidden="true">+</span>
               </button>
             </div>
           </div>
@@ -164,7 +165,7 @@
         <section class="view" id="recipe-editor-view" aria-labelledby="recipe-editor-title">
           <div class="view-header editor-header">
             <div>
-              <button class="back-link" id="close-recipe-editor" type="button">← <span id="recipe-editor-back-label">All recipes</span></button>
+              <button class="back-link" id="close-recipe-editor" type="button"><span aria-hidden="true">←</span> <span class="back-link-label" id="recipe-editor-back-label">All recipes</span></button>
               <h2 id="recipe-editor-title">New recipe</h2>
             </div>
             <div class="recipe-editor-header-actions">
@@ -201,7 +202,7 @@
                     <span>Ingredients</span>
                   </button>
                   <span class="section-hint">Drag <span aria-hidden="true">⠿</span> to reorder</span>
-                  <button class="add-link" id="add-recipe-ingredient" type="button">+ Add ingredient</button>
+                  <button class="add-link" id="add-recipe-ingredient" type="button" aria-label="Add ingredient">+ Add<span class="wide-label"> ingredient</span></button>
                 </div>
                 <div class="recipe-form-section-body" id="recipe-ingredients-body">
                   <div class="recipe-ingredient-columns" aria-hidden="true"><span></span><span>Amount</span><span>Unit</span><span>Ingredient</span><span></span></div>
@@ -229,10 +230,10 @@
                 <span class="editor-side-label">Photo</span>
                 <div class="recipe-photo-preview" id="recipe-photo-preview" data-empty="true" aria-hidden="true"></div>
                 <div class="recipe-photo-buttons">
-                  <label class="secondary-button recipe-photo-button" for="recipe-photo">Choose image</label>
+                  <label class="secondary-button recipe-photo-button" for="recipe-photo">Change photo</label>
                   <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
                   <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove</button>
-                  <span class="recipe-photo-limit">Max 2 MB</span>
+                  <span class="recipe-photo-limit">Optional · max 2 MB</span>
                 </div>
                 <p class="recipe-photo-hint" id="recipe-photo-message"></p>
               </div>
@@ -566,6 +567,15 @@
                   <p class="profile-hint">Choose how you appear to everyone in your household.</p>
                 </div>
 
+                <div class="profile-summary">
+                  <span class="member-avatar" id="profile-summary-avatar" aria-hidden="true"></span>
+                  <span class="profile-summary-text">
+                    <strong id="profile-summary-name">Household member</strong>
+                    <small>Display name and photo</small>
+                  </span>
+                  <button class="add-link" id="edit-profile-details" type="button" aria-expanded="false" aria-controls="profile-settings">Edit</button>
+                </div>
+
                 <div class="profile-preview">
                   <span class="member-avatar large" id="profile-avatar" aria-hidden="true"></span>
                   <label class="secondary-button file-button" for="profile-photo">Choose photo</label>
@@ -581,7 +591,7 @@
                 <label class="settings-toggle" for="hide-nutrition">
                   <span>
                     <strong>Hide calories and macros</strong>
-                    <small>Remove nutrition numbers and the Nutrition page from your view.</small>
+                    <small>Removes nutrition numbers from your view</small>
                   </span>
                   <input id="hide-nutrition" type="checkbox" role="switch" />
                 </label>
@@ -595,14 +605,15 @@
                   <p class="profile-hint">Share this private code with someone you want to invite.</p>
                 </div>
                 <div class="settings-invite">
+                  <span class="settings-invite-label">Invite code</span>
                   <code id="household-code">Loading...</code>
-                  <button class="primary-button" id="copy-household-code" type="button">Copy invite code</button>
+                  <button class="primary-button" id="copy-household-code" type="button" aria-label="Copy invite code">Copy<span class="wide-label"> invite code</span></button>
                 </div>
                 <p id="settings-household-message" class="auth-message" aria-live="polite"></p>
                 <div class="settings-danger-zone">
                   <div>
                     <strong>Leave household</strong>
-                    <p class="profile-hint">You will need an invite code to join it again.</p>
+                    <p class="profile-hint">You'll need an invite code to rejoin</p>
                   </div>
                   <button class="danger-button" id="leave-household" type="button">Leave</button>
                 </div>
@@ -725,6 +736,6 @@
     </dialog>
     <script src="firebase-config.js?v=20260825-5"></script>
     <script src="receipt-import.js?v=20261007-37"></script>
-    <script src="app.js?v=20261007-37"></script>
+    <script src="app.js?v=20261007-38"></script>
   </body>
 </html>

@@ -251,6 +251,8 @@ let hideNutritionPreference = false;
 let personalNutrition = defaultPersonalNutrition();
 let activePlannerId = null;
 let openRecipeId = null;
+// Which half of a recipe the phone layout shows: its ingredients or its method.
+let recipeDetailTab = "ingredients";
 // Recipe page filters: "Can make now" and one category at a time.
 let recipeCanMakeOnly = false;
 let recipeCategoryFilter = "";
@@ -886,8 +888,6 @@ function showRecipeEditor(recipe = null) {
   resetRecipeFormSections();
 }
 
-// The editor form is long on a phone, so its builder sections start collapsed
-// there and stay open on wider screens where they all fit at once.
 function isNarrowLayout() {
   return window.matchMedia("(max-width: 680px)").matches;
 }
@@ -899,8 +899,7 @@ function setRecipeFormSection(section, open) {
 }
 
 function resetRecipeFormSections() {
-  const open = !isNarrowLayout();
-  document.querySelectorAll("#recipe-form .recipe-form-section").forEach((section) => setRecipeFormSection(section, open));
+  document.querySelectorAll("#recipe-form .recipe-form-section").forEach((section) => setRecipeFormSection(section, true));
 }
 
 function openRecipeFormSection(bodyId) {
@@ -1024,7 +1023,11 @@ function renderPlanner() {
     .join("");
 
   // One row per day on wide screens (a header row names the meal columns); the
-  // same markup becomes one card per day on a phone.
+  // same markup becomes one card per day on a phone. The phone list shows today
+  // first and the rest of the week under "Coming up", so days already gone this
+  // week are flagged for it to hide.
+  const todayIndex = isCurrentWeek() ? (new Date().getDay() + 6) % 7 : -1;
+  const comingUpIndex = todayIndex >= 0 ? todayIndex + 1 : 0;
   const head = `<div class="plan-head" aria-hidden="true"><span></span>${meals.map((meal) => `<span>${meal}</span>`).join("")}</div>`;
   grid.innerHTML = head + days
     .map((day, index) => {
@@ -1032,12 +1035,14 @@ function renderPlanner() {
       const filled = filledCounts[index];
       const isToday = dateKey(date) === todayKey;
       const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "", isToday)).join("");
+      const comingUp = index === comingUpIndex ? '<h3 class="plan-coming-up">Coming up</h3>' : "";
 
-      return `
+      return `${comingUp}
         <article
           class="day-column"
           data-day="${day}"
           data-today="${isToday}"
+          data-past="${todayIndex >= 0 && index < todayIndex}"
           data-selected="${index === dayIndex}"
         >
           <header class="day-column-header">
@@ -1046,10 +1051,10 @@ function renderPlanner() {
               <span class="day-row-name">${isToday ? "Today" : day.slice(0, 3)}</span>
             </div>
             <div class="day-column-title">
-              <h3>${day}</h3>
+              <h3>${isToday ? '<span class="day-today-prefix">Today, </span>' : ""}${day}</h3>
               <span class="day-date">${formatDayDate(date)}</span>
             </div>
-            <span class="day-badge" data-complete="${filled === meals.length}">${filled}/${meals.length}</span>
+            <span class="day-badge" data-complete="${filled === meals.length}"><span class="day-badge-short">${filled}/${meals.length}</span><span class="day-badge-long">${filled} of ${meals.length} planned</span></span>
           </header>
           <div class="day-column-slots">${slots}</div>
         </article>`;
@@ -1281,6 +1286,14 @@ function renderRecipes() {
     detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(selectedRecipe));
     detail.querySelector("[data-add-to-plan]").addEventListener("click", () => openAddToPlan(selectedRecipe));
     detail.querySelector("[data-undo-cook]")?.addEventListener("click", undoStockDeduction);
+    detail.querySelectorAll("[data-recipe-tab]").forEach((tab) => {
+      if (tab.tagName !== "BUTTON") return;
+      tab.addEventListener("click", () => {
+        recipeDetailTab = tab.dataset.recipeTab;
+        detail.querySelector(".recipe-detail-layout").dataset.recipeTab = recipeDetailTab;
+        detail.querySelectorAll("button[data-recipe-tab]").forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+      });
+    });
     detail.querySelectorAll("[data-ingredient-check]").forEach((box) => {
       box.addEventListener("change", () => {
         const checks = recipeIngredientChecks.get(selectedRecipe.id) || new Set();
@@ -1328,6 +1341,7 @@ function renderRecipes() {
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
       openRecipeId = button.dataset.openRecipe;
+      recipeDetailTab = "ingredients";
       renderRecipes();
       window.scrollTo({ top: 0 });
     });
@@ -1461,7 +1475,7 @@ function recipeDetailMarkup(recipe) {
     : "";
 
   return `
-    <button class="back-link" data-back-to-recipes type="button">← All recipes</button>
+    <button class="back-link" data-back-to-recipes type="button"><span aria-hidden="true">←</span> <span class="back-link-label">All recipes</span></button>
     <div class="recipe-hero">
       <div class="recipe-hero-photo">
         ${image ? `<img class="recipe-detail-image" src="${escapeHtml(image)}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
@@ -1472,16 +1486,23 @@ function recipeDetailMarkup(recipe) {
         ${recipe.notes ? `<p class="recipe-hero-notes">${escapeHtml(recipe.notes)}</p>` : ""}
         ${stockLine}
         <div class="recipe-hero-actions">
-          <button class="primary-button" data-add-to-plan type="button">Add to plan</button>
-          <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
+          <div class="recipe-hero-primary">
+            <button class="primary-button" data-add-to-plan type="button">Add to plan</button>
+            <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
+          </div>
           ${lastStockDeduction?.recipeId === recipe.id ? '<button class="text-button" data-undo-cook type="button">Undo</button>' : ""}
           <button class="text-button" data-edit-open-recipe type="button">Edit</button>
         </div>
       </div>
     </div>
-    <div class="recipe-detail-layout">
+    <div class="recipe-detail-tabs" role="tablist" aria-label="Recipe sections">
+      <button type="button" role="tab" data-recipe-tab="ingredients" aria-selected="${recipeDetailTab === "ingredients"}">Ingredients · ${recipe.ingredients.length}</button>
+      <button type="button" role="tab" data-recipe-tab="method" aria-selected="${recipeDetailTab === "method"}">Method · ${steps.length}</button>
+    </div>
+    <div class="recipe-detail-layout" data-recipe-tab="${recipeDetailTab}">
       <section class="recipe-detail-ingredients">
         <h3>Ingredients · ${recipe.ingredients.length}</h3>
+        ${stockLine.replace("recipe-hero-stock", "recipe-hero-stock recipe-tab-stock")}
         <ul class="ingredient-checklist">
           ${recipe.ingredients
             .map((ingredient, index) => {
@@ -5100,6 +5121,17 @@ function setupSettingsPage() {
     input.addEventListener("change", () => applyAppearance({ theme: input.value }));
   });
 
+  // On a phone the profile collapses to a summary row; Edit opens the name and photo fields.
+  const editProfile = document.getElementById("edit-profile-details");
+  editProfile.addEventListener("click", () => {
+    const section = document.getElementById("profile-settings");
+    const editing = section.dataset.editing !== "true";
+    section.dataset.editing = String(editing);
+    editProfile.setAttribute("aria-expanded", String(editing));
+    editProfile.textContent = editing ? "Done" : "Edit";
+    if (editing) authEls.profileName.focus();
+  });
+
   const links = [...document.querySelectorAll("[data-settings-link]")];
   const setActive = (id) => links.forEach((link) => link.classList.toggle("active", link.dataset.settingsLink === id));
   links.forEach((link) => {
@@ -5147,6 +5179,8 @@ function syncAppearanceControls() {
 function renderProfilePreview() {
   const name = authEls.profileName.value.trim() || cloud?.auth.currentUser?.displayName || "Household member";
   applyAvatar(authEls.profileAvatar, { displayName: name, photoUrl: profileDraftPhoto });
+  applyAvatar(document.getElementById("profile-summary-avatar"), { displayName: name, photoUrl: profileDraftPhoto });
+  document.getElementById("profile-summary-name").textContent = name;
 }
 
 async function handleProfilePhotoChange(event) {
