@@ -841,6 +841,13 @@ main {
   font-size: 0;
 }
 
+.meal-slot-initial {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 1.3em;
+  line-height: 1;
+}
+
 .meal-slot-text {
   display: grid;
   gap: 1px;
@@ -5304,14 +5311,22 @@ input[type="checkbox"] {
   margin: 0;
 }
 
+/* Ingredient names in a step read as accented words, with the amount as a quiet
+   smaller aside in the same colour, so wrapped lines flow like plain text. */
 .ingredient-mention {
-  background: var(--pink-soft);
+  background: transparent;
   border: 0;
-  border-radius: 8px;
-  color: var(--ink);
+  border-radius: 0;
+  color: var(--accent);
   cursor: default;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 0;
+}
+
+.ingredient-mention-amount {
+  color: var(--accent);
+  font-size: 0.9em;
+  white-space: nowrap;
 }
 
 .recipe-totals {
@@ -6703,18 +6718,15 @@ input[type="checkbox"] {
     display: none;
   }
 
+  /* Every recipe in the category, two to a row. */
   .recipe-category-grid {
-    display: flex;
-    gap: 12px;
-    margin-right: -16px;
-    overflow-x: auto;
-    padding-right: 16px;
-    scrollbar-width: none;
+    display: grid;
+    gap: 20px 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .recipe-catalogue-card {
-    flex: none;
-    width: 160px;
+    min-width: 0;
   }
 
   .recipe-catalogue-visual,
@@ -6946,8 +6958,8 @@ input[type="checkbox"] {
 .phone-label,
 .day-today-prefix,
 .plan-coming-up,
+.plan-today-row,
 .day-badge-long,
-.recipe-detail-tabs,
 .recipe-tab-stock,
 .profile-summary,
 .settings-invite-label {
@@ -7014,45 +7026,86 @@ input[type="checkbox"] {
     margin-top: 10px;
   }
 
-  /* --- Bottom bar --- */
+  /* --- Bottom bar ---
+     Four equal tabs, each a line icon over its label. The current tab fills a
+     pink pill behind its icon and takes the accent colour. */
   .tabs {
-    background: var(--surface);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    background: var(--surface-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--line);
     gap: 0;
-    padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
   }
 
-  .tabs .tab-icon,
   .tabs .tab-action,
   .tabs [data-tab="macros"] {
     display: none;
   }
 
-  .tab-button {
-    border-radius: 999px;
+  .tab-button,
+  .tabs .tab-button.active {
+    background: transparent;
+    border-radius: 0;
+    color: var(--muted);
     flex: 1 1 0;
-    font-size: 0.94rem;
+    font-size: 0.72rem;
     font-weight: 500;
-    min-height: 36px;
-    padding: 6px 4px;
+    gap: 4px;
+    letter-spacing: 0.01em;
+    margin: 0;
+    min-height: 54px;
+    padding: 2px 0;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .tab-button.active,
+  .tab-button:hover,
   .tab-button.active:hover {
-    background: var(--pink-soft);
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .tab-button:hover {
     background: transparent;
   }
 
+  .tabs .tab-icon {
+    align-items: center;
+    border-radius: 999px;
+    display: flex;
+    height: 32px;
+    justify-content: center;
+    transition: background-color 0.2s ease, width 0.2s ease;
+    width: 48px;
+  }
+
+  .tab-icon svg {
+    fill: none;
+    height: 22px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 22px;
+  }
+
   .tabs .tab-button.active {
-    flex: 0 0 auto;
-    margin-inline: 8px;
-    padding-inline: 14px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .tabs .tab-button.active .tab-icon {
+    background: var(--pink-soft);
+    width: 60px;
+  }
+
+  .tabs .tab-button.active .tab-icon svg {
+    stroke-width: 2.1;
+  }
+
+  .tab-button:active .tab-icon {
+    background: var(--panel);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tabs .tab-icon {
+      transition: none;
+    }
   }
 
   body:has(#recipes-view.active.is-reading) .tabs,
@@ -7189,10 +7242,6 @@ input[type="checkbox"] {
     padding: 0;
   }
 
-  #week-grid .day-column[data-past="true"] {
-    display: none;
-  }
-
   #week-grid .day-row-label,
   #week-grid .day-date,
   #week-grid .day-badge-short {
@@ -7282,18 +7331,6 @@ input[type="checkbox"] {
     min-width: 0;
   }
 
-  /* Coming-up days put the meal name above its card. */
-  #week-grid .day-column:not([data-today="true"]) .meal-slot {
-    padding-top: 22px;
-    position: relative;
-  }
-
-  #week-grid .day-column:not([data-today="true"]) .meal-slot-label {
-    left: 0;
-    position: absolute;
-    top: -23px;
-  }
-
   #week-grid .meal-slot-label {
     color: var(--muted);
     font-size: 0.75rem;
@@ -7349,25 +7386,199 @@ input[type="checkbox"] {
     font-weight: 600;
   }
 
-  #week-grid .day-column:not([data-today="true"]) + .day-column:not([data-past="true"]):not([data-today="true"]) {
-    border-top: 1px solid var(--line);
-    margin-top: 24px;
-    padding-top: 22px;
-  }
-
   #week-grid .plan-coming-up {
-    border-bottom: 1px solid var(--line);
     color: var(--ink);
     display: block;
     font-family: var(--font-display);
     font-size: 1.6rem;
     font-weight: 400;
-    margin: 32px 0 22px;
-    padding-bottom: 14px;
+    margin: 32px 0 14px;
   }
 
-  #week-grid .plan-coming-up:first-child {
-    margin-top: 0;
+  /* Today's card first, then the whole week as a compact table like desktop:
+     a day label and a Breakfast / Lunch / Dinner column of small photos. */
+  #week-grid .day-column[data-today="true"] {
+    order: 1;
+  }
+
+  #week-grid .plan-coming-up {
+    order: 2;
+  }
+
+  #week-grid .plan-head {
+    order: 3;
+  }
+
+  #week-grid .day-column:not([data-today="true"]),
+  #week-grid .plan-today-row {
+    order: 4;
+  }
+
+  #week-grid .plan-head,
+  #week-grid .day-column:not([data-today="true"]),
+  #week-grid .plan-today-row {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 38px repeat(3, minmax(0, 1fr));
+  }
+
+  /* Today's row in the table: a pink band that scrolls back up to its card. */
+  #week-grid .plan-today-row {
+    align-items: start;
+    background: var(--pink-soft);
+    border: 0;
+    border-radius: 14px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    margin: 4px -8px;
+    padding: 10px 8px;
+    text-align: left;
+  }
+
+  #week-grid .plan-today-row .day-row-label {
+    display: grid;
+    gap: 2px;
+    padding-top: 2px;
+  }
+
+  #week-grid .plan-today-row .day-row-number,
+  #week-grid .plan-today-row .day-row-name {
+    color: var(--accent);
+  }
+
+  #week-grid .plan-today-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  #week-grid .plan-today-cell[data-filled="false"] .meal-slot-value {
+    display: none;
+  }
+
+  #week-grid .plan-head {
+    border-bottom: 1.5px solid var(--ink);
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) {
+    align-items: start;
+    border-bottom: 1px solid var(--line);
+    padding: 10px 0;
+  }
+
+  #week-grid .day-column[data-past="true"] {
+    opacity: 0.55;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .day-column-header {
+    display: block;
+    margin: 0;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .day-column-title,
+  #week-grid .day-column:not([data-today="true"]) .day-badge {
+    display: none;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .day-row-label {
+    display: grid;
+    gap: 2px;
+    padding-top: 2px;
+  }
+
+  #week-grid .day-row-number {
+    color: var(--ink);
+    font: 400 1.4rem/1 var(--font-display);
+  }
+
+  #week-grid .day-row-name {
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .day-column-slots {
+    display: contents;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .meal-slot {
+    gap: 4px;
+    min-width: 0;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-main,
+  #week-grid .day-column:not([data-today="true"]) .meal-slot[data-filled="false"] .meal-slot-main {
+    background: transparent;
+    border: 0;
+    border-radius: 10px;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-thumb,
+  #week-grid .plan-today-row .meal-slot-thumb {
+    aspect-ratio: 4 / 3;
+    border-radius: 10px;
+    display: flex;
+    font-size: 1rem;
+    height: auto;
+    width: 100%;
+  }
+
+  /* Empty cells read as buttons: a white tile, pink dashed edge and a bold "+". */
+  #week-grid .day-column:not([data-today="true"]) .meal-slot[data-filled="false"] .meal-slot-thumb,
+  #week-grid .plan-today-cell[data-filled="false"] .meal-slot-thumb {
+    background: var(--card);
+    border: 2px dashed var(--pink-dash);
+    color: var(--accent);
+    font-size: 1.5rem;
+    font-weight: 500;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-value,
+  #week-grid .plan-today-row .meal-slot-value {
+    color: var(--ink);
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    display: -webkit-box;
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    -webkit-line-clamp: 2;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  /* An empty cell is just its dashed "+" box; the column says which meal. */
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-label,
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-meta,
+  #week-grid .day-column:not([data-today="true"]) .meal-slot-chevron,
+  #week-grid .day-column:not([data-today="true"]) .meal-slot[data-filled="false"] .meal-slot-value {
+    display: none;
+  }
+
+  /* Once a takeout spot is named the cell already shows it, so the field steps
+     aside; it stays while empty to ask "Where from?". */
+  #week-grid .day-column:not([data-today="true"]) .takeout-name:not(:placeholder-shown) {
+    display: none;
+  }
+
+  #week-grid .day-column:not([data-today="true"]) .takeout-name {
+    font-size: 0.75rem;
+    min-height: 30px;
+    padding: 2px 6px;
+    width: 100%;
   }
 
   /* Today: one pink card with its meals sitting straight on it. */
@@ -7545,8 +7756,7 @@ input[type="checkbox"] {
   }
 
   .recipe-hero-body,
-  .recipe-detail-layout,
-  .recipe-detail-tabs {
+  .recipe-detail-layout {
     padding-inline: 20px;
   }
 
@@ -7587,42 +7797,21 @@ input[type="checkbox"] {
     text-decoration: none;
   }
 
-  .recipe-detail-tabs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    margin-top: 22px;
-  }
-
-  .recipe-detail-tabs button {
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--line-strong);
-    border-radius: 0;
-    color: var(--muted);
-    font-size: 0.97rem;
-    font-weight: 500;
-    min-height: 46px;
-    padding: 0;
-  }
-
-  .recipe-detail-tabs button[aria-selected="true"] {
-    border-bottom: 2px solid var(--ink);
-    color: var(--ink);
-    font-weight: 600;
-  }
-
+  /* Ingredients, then the method, in one scroll. */
   .recipe-detail-layout {
     display: block;
-    padding-top: 16px;
+    padding-top: 22px;
   }
 
-  .recipe-detail-layout[data-recipe-tab="ingredients"] .recipe-detail-method,
-  .recipe-detail-layout[data-recipe-tab="method"] .recipe-detail-ingredients {
-    display: none;
+  .recipe-detail-method {
+    border-top: 1px solid var(--line);
+    margin-top: 28px;
+    padding-top: 24px;
   }
 
   .recipe-detail-layout h3 {
-    display: none;
+    font-size: 1.6rem;
+    font-weight: 400;
   }
 
   .recipe-detail-layout .recipe-tab-stock {
@@ -7710,7 +7899,8 @@ input[type="checkbox"] {
   .grocery-row {
     align-items: center;
     border-bottom: 1px solid var(--line);
-    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     padding: 12px 0;
   }
 
@@ -7733,11 +7923,29 @@ input[type="checkbox"] {
   .grocery-row-amount {
     align-self: center;
     font-size: 0.94rem;
-    grid-row: auto;
+    grid-column: 2;
+    grid-row: 1;
   }
 
+  /* A small pill at the end of each row: the saved product, or a Walmart search. */
   .grocery-row-link {
-    display: none;
+    align-items: center;
+    background: var(--pink-soft);
+    border-radius: 999px;
+    color: var(--accent);
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 3px;
+    grid-column: 3;
+    grid-row: 1;
+    min-height: 32px;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .grocery-row-link:hover {
+    text-decoration: none;
   }
 
   .grocery-row[data-checked="true"] .grocery-row-name {

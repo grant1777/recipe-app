@@ -251,8 +251,6 @@ let hideNutritionPreference = false;
 let personalNutrition = defaultPersonalNutrition();
 let activePlannerId = null;
 let openRecipeId = null;
-// Which half of a recipe the phone layout shows: its ingredients or its method.
-let recipeDetailTab = "ingredients";
 // Recipe page filters: "Can make now" and one category at a time.
 let recipeCanMakeOnly = false;
 let recipeCategoryFilter = "";
@@ -267,7 +265,6 @@ let settingsReturnView = null;
 let plannerMode = "day";
 let selectedDayIndex = null;
 let lastCentredDayIndex = null;
-
 function blankPlan() {
   return Object.fromEntries(days.map((day) => [day, Object.fromEntries(meals.map((meal) => [meal, ""]))]));
 }
@@ -859,7 +856,12 @@ function renderTabs() {
 }
 
 function activateAppView(viewName, activeTab = viewName) {
-  document.querySelectorAll(".tab-button").forEach((button) => button.classList.toggle("active", button.dataset.tab === activeTab));
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    const active = button.dataset.tab === activeTab;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `${viewName}-view`));
   document.querySelectorAll(".subnav-button").forEach((button) => {
     const active = button.dataset.subview === viewName;
@@ -936,13 +938,20 @@ function slotSummary(value) {
   return { kind: "recipe", label: recipe.name, image: recipeImage(recipe), note: `Serves ${formatQuantity(Number(recipe.servings || 1))}` };
 }
 
+// A recipe without a photo shows its first letter so the square is never blank.
+function mealThumbMarkup(summary) {
+  if (summary.image) return `<span class="meal-slot-thumb has-photo" style="background-image:url('${summary.image}')"></span>`;
+  const content = summary.kind === "takeout" ? "🥡"
+    : summary.kind === "recipe" ? `<span class="meal-slot-initial">${escapeHtml(summary.label.trim().charAt(0).toUpperCase())}</span>`
+    : "+";
+  return `<span class="meal-slot-thumb" aria-hidden="true">${content}</span>`;
+}
+
 function mealSlotMarkup(day, meal, value, isToday = false) {
   const takeout = isTakeoutValue(value);
   const summary = slotSummary(value);
   const filled = summary.kind !== "empty";
-  const thumb = summary.image
-    ? `<span class="meal-slot-thumb has-photo" style="background-image:url('${summary.image}')"></span>`
-    : `<span class="meal-slot-thumb" aria-hidden="true">${summary.kind === "takeout" ? "🥡" : filled ? "" : "+"}</span>`;
+  const thumb = mealThumbMarkup(summary);
   const emptyLabel = isToday ? "Pick a recipe" : `Add ${meal.toLowerCase()}`;
 
   return `
@@ -1023,21 +1032,31 @@ function renderPlanner() {
     .join("");
 
   // One row per day on wide screens (a header row names the meal columns); the
-  // same markup becomes one card per day on a phone. The phone list shows today
-  // first and the rest of the week under "Coming up", so days already gone this
-  // week are flagged for it to hide.
+  // same markup on a phone puts today's card first, then the rest of the week
+  // as a compact table under "This week" (CSS orders the pieces). Days already
+  // gone this week are flagged so the table can mute them.
   const todayIndex = isCurrentWeek() ? (new Date().getDay() + 6) % 7 : -1;
-  const comingUpIndex = todayIndex >= 0 ? todayIndex + 1 : 0;
   const head = `<div class="plan-head" aria-hidden="true"><span></span>${meals.map((meal) => `<span>${meal}</span>`).join("")}</div>`;
-  grid.innerHTML = head + days
+  const weekTitle = todayIndex >= 0 ? '<h3 class="plan-coming-up">This week</h3>' : "";
+  grid.innerHTML = weekTitle + head + days
     .map((day, index) => {
       const date = addDays(selectedWeekStart, index);
       const filled = filledCounts[index];
       const isToday = dateKey(date) === todayKey;
       const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "", isToday)).join("");
-      const comingUp = index === comingUpIndex ? '<h3 class="plan-coming-up">Coming up</h3>' : "";
+      // The phone table keeps a read-only row for today in its place; today's
+      // card above it is where those meals are edited, so the row jumps there.
+      const todayRow = isToday
+        ? `<button type="button" class="plan-today-row" aria-label="Today's meals">
+            <span class="day-row-label"><span class="day-row-number">${date.getDate()}</span><span class="day-row-name">Today</span></span>
+            ${meals.map((meal) => {
+              const summary = slotSummary(plan[day]?.[meal] || "");
+              return `<span class="plan-today-cell" data-filled="${summary.kind !== "empty"}">${mealThumbMarkup(summary)}<span class="meal-slot-value">${escapeHtml(summary.label)}</span></span>`;
+            }).join("")}
+          </button>`
+        : "";
 
-      return `${comingUp}
+      return `${todayRow}
         <article
           class="day-column"
           data-day="${day}"
@@ -1060,6 +1079,10 @@ function renderPlanner() {
         </article>`;
     })
     .join("");
+
+  grid.querySelector(".plan-today-row")?.addEventListener("click", () => {
+    grid.querySelector('.day-column[data-today="true"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   strip.querySelectorAll(".day-pill").forEach((pill) => {
     pill.addEventListener("click", () => {
@@ -1286,14 +1309,6 @@ function renderRecipes() {
     detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(selectedRecipe));
     detail.querySelector("[data-add-to-plan]").addEventListener("click", () => openAddToPlan(selectedRecipe));
     detail.querySelector("[data-undo-cook]")?.addEventListener("click", undoStockDeduction);
-    detail.querySelectorAll("[data-recipe-tab]").forEach((tab) => {
-      if (tab.tagName !== "BUTTON") return;
-      tab.addEventListener("click", () => {
-        recipeDetailTab = tab.dataset.recipeTab;
-        detail.querySelector(".recipe-detail-layout").dataset.recipeTab = recipeDetailTab;
-        detail.querySelectorAll("button[data-recipe-tab]").forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
-      });
-    });
     detail.querySelectorAll("[data-ingredient-check]").forEach((box) => {
       box.addEventListener("change", () => {
         const checks = recipeIngredientChecks.get(selectedRecipe.id) || new Set();
@@ -1341,7 +1356,6 @@ function renderRecipes() {
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
       openRecipeId = button.dataset.openRecipe;
-      recipeDetailTab = "ingredients";
       renderRecipes();
       window.scrollTo({ top: 0 });
     });
@@ -1468,6 +1482,8 @@ function recipeDetailMarkup(recipe) {
   const coverage = recipeStockCoverage(recipe);
   const checks = recipeIngredientChecks.get(recipe.id) || new Set();
   const servings = formatQuantity(Number(recipe.servings || 1));
+  // Shared across the steps so a repeated ingredient takes its amounts in order.
+  const mentionsSeen = new Map();
   const stockLine = coverage.total && hasKitchenStock()
     ? coverage.ready
       ? '<p class="recipe-hero-stock is-ready">✓ Everything is in your kitchen</p>'
@@ -1495,11 +1511,7 @@ function recipeDetailMarkup(recipe) {
         </div>
       </div>
     </div>
-    <div class="recipe-detail-tabs" role="tablist" aria-label="Recipe sections">
-      <button type="button" role="tab" data-recipe-tab="ingredients" aria-selected="${recipeDetailTab === "ingredients"}">Ingredients · ${recipe.ingredients.length}</button>
-      <button type="button" role="tab" data-recipe-tab="method" aria-selected="${recipeDetailTab === "method"}">Method · ${steps.length}</button>
-    </div>
-    <div class="recipe-detail-layout" data-recipe-tab="${recipeDetailTab}">
+    <div class="recipe-detail-layout">
       <section class="recipe-detail-ingredients">
         <h3>Ingredients · ${recipe.ingredients.length}</h3>
         ${stockLine.replace("recipe-hero-stock", "recipe-hero-stock recipe-tab-stock")}
@@ -1521,10 +1533,10 @@ function recipeDetailMarkup(recipe) {
         </ul>
       </section>
       <section class="recipe-detail-method">
-        <h3>Method · ${steps.length}</h3>
+        <h3>Instructions · ${steps.length}</h3>
         ${steps.length
           ? `<ol class="method-steps">${steps
-              .map((step, index) => `<li><span class="method-number" aria-hidden="true">${index + 1}</span><p>${highlightIngredientMentions(step, recipe)}</p></li>`)
+              .map((step, index) => `<li><span class="method-number" aria-hidden="true">${index + 1}</span><p>${highlightIngredientMentions(step, recipe, mentionsSeen)}</p></li>`)
               .join("")}</ol>`
           : '<p class="empty-state">No instructions added yet.</p>'}
         <details class="recipe-totals nutrition-only">
@@ -1729,23 +1741,41 @@ function stripStepTags(step) {
   return String(step ?? "").replace(stepTagPattern, (match, name, text) => (text ?? name).trim() || name.trim());
 }
 
+// Every amount listed for each ingredient name, in list order, so an ingredient
+// used more than once (butter for the roux, then butter to finish) keeps each use.
 function recipeIngredientAmounts(recipe) {
   const amounts = new Map();
   recipe.ingredients?.forEach((item) => {
     const detail = recipeIngredientMention(item);
-    if (detail?.name) amounts.set(detail.name.toLowerCase(), detail.amount);
+    if (!detail?.name) return;
+    const key = detail.name.toLowerCase();
+    amounts.set(key, [...(amounts.get(key) || []), detail.amount]);
   });
   return amounts;
 }
 
 function mentionMarkup(text, amount) {
   if (!amount) return escapeHtml(text);
-  return `<span class="ingredient-mention">${escapeHtml(text)}<span class="ingredient-mention-amount"> · ${escapeHtml(amount)}</span></span>`;
+  return `<span class="ingredient-mention">${escapeHtml(text)}</span> <span class="ingredient-mention-amount">(${escapeHtml(amount)})</span>`;
 }
 
-function highlightIngredientMentions(step, recipe) {
-  const amounts = recipeIngredientAmounts(recipe);
-  const names = [...amounts.keys()].sort((a, b) => b.length - a.length);
+// `seen` counts mentions per name across all of a recipe's steps: the nth
+// mention of a repeated ingredient shows its nth listed amount. An ingredient
+// listed once shows that amount every time; mentions past the last listed use
+// of a repeated one show no amount rather than a wrong one.
+function highlightIngredientMentions(step, recipe, seen = new Map()) {
+  const lists = recipeIngredientAmounts(recipe);
+  const amounts = {
+    get(key) {
+      const list = lists.get(key);
+      if (!list) return "";
+      if (list.length === 1) return list[0];
+      const index = seen.get(key) || 0;
+      seen.set(key, index + 1);
+      return list[index] || "";
+    }
+  };
+  const names = [...lists.keys()].sort((a, b) => b.length - a.length);
   const autoPattern = names.length ? new RegExp(`\\b(${names.map(escapeRegExp).join("|")})\\b`, "gi") : null;
 
   // Untagged stretches keep the old automatic name matching.
@@ -1981,11 +2011,12 @@ function recipeIngredientParts(item) {
   const ingredient = state.ingredients[item.key] || item;
   const name = ingredient.name || "Ingredient";
   const amount = recipeIngredientAmountParts(item, ingredient);
-  if (amount.unit === "piece") {
+  // A plain count, or a unit that already names the ingredient ("2 eggs Egg"),
+  // reads as the number beside the pluralised name: "2" and "Eggs".
+  if (amount.unit === "piece" || unitNamesIngredient(amount.unit, name)) {
     return { amount: formatUnitQuantity(amount.quantity, amount.unit), name: pluralizeName(name, amount.quantity) };
   }
-  // An "egg" unit already names the ingredient, so "2 eggs Egg" becomes "2 eggs".
-  return { amount: amount.text, name: unitNamesIngredient(amount.unit, name) ? "" : name };
+  return { amount: amount.text, name };
 }
 
 // Pulls "2 tbsp" off the front of "2 tbsp Olive oil". The trailing word only
