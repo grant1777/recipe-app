@@ -3695,6 +3695,13 @@ body.hide-nutrition .nutrition-only {
   font-size: 0.76rem;
 }
 
+.planner-add-member {
+  justify-self: start;
+  margin-top: 6px;
+  max-width: 100%;
+  width: auto;
+}
+
 .planner-directory-actions {
   display: flex;
   flex: none;

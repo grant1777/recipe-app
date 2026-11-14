@@ -1184,6 +1184,14 @@ function setupPlannerLayout() {
   );
 }
 
+// "piece" is the stored value for a bare count ("3 Potatoes", "1 Egg Yolk"); it is
+// labelled and displayed as no unit at all, so the number sits beside the name.
+const countOnlyUnit = "piece";
+
+function unitLabel(unit) {
+  return unit === countOnlyUnit ? "No unit" : unit;
+}
+
 // Every dropdown in the app is built from one of the shared indexes — saved
 // recipes, their categories, the ingredient catalogue, or the unit list — through
 // these helpers, so no two lists can drift apart.
@@ -1194,7 +1202,7 @@ function optionMarkup(value, label, selected = "", extra = "") {
 function unitOptionsMarkup({ selected = "", lead = "", extraUnit = "", includeOther = false } = {}) {
   const groups = servingUnits
     .map((section) => {
-      const options = section.units.map((unit) => optionMarkup(unit, unit, selected)).join("");
+      const options = section.units.map((unit) => optionMarkup(unit, unitLabel(unit), selected)).join("");
       return `<optgroup label="${escapeHtml(section.group)}">${options}</optgroup>`;
     })
     .join("");
@@ -1649,14 +1657,29 @@ function renderPlannerDirectory() {
     .map((planner) => {
       const joined = isPlannerMember(planner);
       const memberCount = planner.allHouseholdMembers ? householdMembers.length : planner.memberUids.length;
-      const membership = planner.allHouseholdMembers ? "All household members" : `${memberCount} member${memberCount === 1 ? "" : "s"}`;
+      const memberNames = householdMembers.filter((member) => planner.memberUids.includes(member.uid)).map(memberName);
+      const membership = planner.allHouseholdMembers
+        ? "All household members"
+        : memberNames.length === memberCount ? memberNames.join(", ") : `${memberCount} member${memberCount === 1 ? "" : "s"}`;
       const owner = householdMembers.find((member) => member.uid === planner.ownerUid);
       const ownerText = owner ? ` - Created by ${memberName(owner)}` : "";
+      // Members can bring other household members into a planner directly,
+      // instead of each person having to find it and press Join themselves.
+      const addable = joined && !planner.allHouseholdMembers
+        ? householdMembers.filter((member) => !planner.memberUids.includes(member.uid))
+        : [];
+      const addControl = addable.length
+        ? `<select class="planner-add-member" data-add-member-planner="${escapeHtml(planner.id)}" aria-label="Add a household member to ${escapeHtml(planner.name)}">
+            ${optionMarkup("", "+ Add member")}
+            ${addable.map((member) => optionMarkup(member.uid, memberName(member))).join("")}
+          </select>`
+        : "";
       return `
         <div class="planner-directory-row">
           <div>
             <strong>${escapeHtml(planner.name)}</strong>
             <span class="planner-directory-meta">${escapeHtml(membership + ownerText)}</span>
+            ${addControl}
           </div>
           <div class="planner-directory-actions">
             ${joined
@@ -1678,6 +1701,11 @@ function renderPlannerDirectory() {
   });
   directory.querySelectorAll("[data-leave-planner]").forEach((button) => {
     button.addEventListener("click", () => leavePlanner(button.dataset.leavePlanner));
+  });
+  directory.querySelectorAll("[data-add-member-planner]").forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value) addPlannerMember(select.dataset.addMemberPlanner, select.value);
+    });
   });
 }
 
@@ -1706,6 +1734,16 @@ function joinPlanner(plannerId) {
   saveState();
   selectPlanner(plannerId);
   if (authEls.plannerDialog.open) authEls.plannerDialog.close();
+}
+
+function addPlannerMember(plannerId, memberUid) {
+  const planner = state.planners?.[plannerId];
+  const isHouseholdMember = householdMembers.some((member) => member.uid === memberUid);
+  if (!planner || planner.allHouseholdMembers || !isPlannerMember(planner) || !isHouseholdMember || !requireCloudWrite()) return;
+  planner.memberUids = [...new Set([...(planner.memberUids || []), memberUid])];
+  saveState();
+  renderAll();
+  renderPlannerDirectory();
 }
 
 function leavePlanner(plannerId) {
@@ -1808,7 +1846,8 @@ function recipeIngredientMention(item) {
   if (typeof item === "string") {
     const parsed = parseIngredient(item);
     if (!parsed) return null;
-    const amount = parsed.quantity ? `${formatQuantity(parsed.quantity)}${parsed.unit ? ` ${parsed.unit}` : ""}` : formatAmountsInText(item);
+    const shownUnit = normalizeMeasurementUnit(parsed.unit) === countOnlyUnit ? "" : parsed.unit;
+    const amount = parsed.quantity ? `${formatQuantity(parsed.quantity)}${shownUnit ? ` ${shownUnit}` : ""}` : formatAmountsInText(item);
     return { name: parsed.name, amount };
   }
 
@@ -1897,8 +1936,9 @@ function formatUnitQuantity(quantity, unit) {
 // Shared "<amount> <unit>" builder that also reports the singular unit it settled on,
 // so callers can drop an ingredient name the unit already covers.
 function amountParts(quantity, unit) {
+  const shownUnit = normalizeMeasurementUnit(unit) === countOnlyUnit ? "" : pluralizeUnit(unit, quantity);
   return {
-    text: `${formatUnitQuantity(quantity, unit)} ${pluralizeUnit(unit, quantity)}`.replace(/\s+/g, " ").trim(),
+    text: `${formatUnitQuantity(quantity, unit)} ${shownUnit}`.replace(/\s+/g, " ").trim(),
     unit: normalizeMeasurementUnit(unit),
     quantity: Number(quantity || 0)
   };
@@ -2028,6 +2068,7 @@ function splitLeadingAmount(text) {
   const [, quantity, rest] = match;
   const unitMatch = rest.match(/^([a-zA-Z]+)\s+(\S.*)$/);
   const unit = unitMatch ? normalizeMeasurementUnit(unitMatch[1]) : "";
+  if (unitMatch && unit === countOnlyUnit) return { amount: quantity, name: unitMatch[2] };
   if (unitMatch && (knownServingUnit(unit) || unit === "container")) {
     return { amount: `${quantity} ${unitMatch[1]}`, name: unitMatch[2] };
   }
@@ -4433,8 +4474,18 @@ function updateRecipeIngredientRow(row) {
   delete select.dataset.initialMeasure;
   const serving = ingredient ? parseServing(ingredient.serving) : null;
   const measure = requestedMeasure;
-  select.innerHTML = recipeMeasurementOptions(ingredient, measure);
-  select.value = measure;
+  // Every cloud sync re-renders the app, which lands here for every row. Rebuilding
+  // a <select> while its native picker is open (mobile) or mid-edit throws away the
+  // choice, so the options are only rewritten when the ingredient behind them changed.
+  const optionsKey = ingredient ? `${ingredient.key}|${ingredient.serving}|${containerUnit(ingredient)}|${servingsPerContainer(ingredient)}` : "";
+  const busy = document.activeElement === select;
+  if (select.dataset.optionsKey !== optionsKey || !select.options.length) {
+    if (!busy || !select.options.length) {
+      select.innerHTML = recipeMeasurementOptions(ingredient, measure);
+      select.dataset.optionsKey = optionsKey;
+    }
+  }
+  if (select.value !== measure && [...select.options].some((option) => option.value === measure)) select.value = measure;
   const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
   const servingCount = ingredient ? recipeItemServingCount({ quantity, measure }, ingredient) : 0;
   const unlinked = !ingredient && Boolean(name.trim());
@@ -4482,9 +4533,10 @@ function collectRecipeIngredients(allowIncomplete = false) {
       ingredients.push({ key: ingredient.key, quantity, measure });
     } else {
       const unit = measure === "serving" ? "" : measure === "container" ? containerUnit(ingredient) : measure;
-      const amount = amountParts(quantity, unit);
-      const label = unitNamesIngredient(amount.unit, name) ? "" : name;
-      ingredients.push(`${amount.text} ${label}`.replace(/\s+/g, " ").trim());
+      // Stored with the unit spelled out (even "piece") so the row reopens with the
+      // same unit selected; the display drops it.
+      const label = unitNamesIngredient(unit, name) ? "" : name;
+      ingredients.push(`${formatUnitQuantity(quantity, unit)} ${pluralizeUnit(unit, quantity)} ${label}`.replace(/\s+/g, " ").trim());
     }
   }
 
