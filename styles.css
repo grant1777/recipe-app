@@ -1492,9 +1492,11 @@ body.hide-nutrition .nutrition-only {
   min-height: 64px;
 }
 
-.recipe-step-row label {
+.recipe-step-row label,
+.recipe-step-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .recipe-step-tools {
@@ -8486,4 +8488,63 @@ input[type="checkbox"] {
     position: absolute;
     width: 100%;
   }
+}
+
+.recipe-step-selection {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 4px;
+  color: inherit;
+  padding: 0 3px;
+}
+
+.photo-link-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.photo-link-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.photo-link-row .secondary-button {
+  flex: none;
+  font-size: 0.875rem;
+  min-height: 0;
+  padding: 9px 16px;
+}
+
+/* Step editor: the text box holds plain words; a layer laid exactly over it
+   tints the words that are labelled as ingredients. */
+.recipe-step-input-wrap {
+  display: block;
+  min-width: 0;
+  position: relative;
+}
+
+.recipe-step-input-wrap textarea {
+  display: block;
+}
+
+.recipe-step-highlights {
+  border-color: transparent;
+  border-style: solid;
+  color: transparent;
+  left: 0;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+
+.recipe-step-highlights mark {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: transparent;
 }

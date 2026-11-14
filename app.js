@@ -668,6 +668,7 @@ function subscribeToHousehold(householdId) {
       syncState === "saving" ? "Saving household changes..." : syncState === "connecting" ? "Waiting for the Firebase server." : "Shared household data is synced."
     );
     renderAll();
+    applyPendingRoute();
   }, (error) => {
     cloudDataLoaded = false;
     authEls.appShell.hidden = true;
@@ -849,10 +850,6 @@ function renderTabs() {
       activateAppView(button.dataset.tab, button.dataset.tab);
     });
   });
-  // Pantry holds two pages: what is in the kitchen, and the ingredient index behind it.
-  document.querySelectorAll(".subnav-button").forEach((button) => {
-    button.addEventListener("click", () => activateAppView(button.dataset.subview, "kitchen-stock"));
-  });
 }
 
 function activateAppView(viewName, activeTab = viewName) {
@@ -863,11 +860,6 @@ function activateAppView(viewName, activeTab = viewName) {
     else button.removeAttribute("aria-current");
   });
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.id === `${viewName}-view`));
-  document.querySelectorAll(".subnav-button").forEach((button) => {
-    const active = button.dataset.subview === viewName;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
-  });
   // The header avatar is the way into Settings, so it shows as the current page there.
   document.querySelectorAll(".sidebar-avatar-button, .mobile-settings-button").forEach((button) => {
     button.classList.toggle("is-current", viewName === "settings");
@@ -875,6 +867,88 @@ function activateAppView(viewName, activeTab = viewName) {
     else button.removeAttribute("aria-current");
   });
   if (viewName !== "ingredients") document.getElementById("back-to-recipe-editor").hidden = true;
+  syncRoute();
+}
+
+// ---- Page addresses -------------------------------------------------------
+// Each page has its own #address (#recipes, #pantry, #recipes/<id>/edit...) so a
+// refresh, a bookmark or the back button lands on the same page.
+const viewSlugs = {
+  planner: "plan",
+  recipes: "recipes",
+  groceries: "groceries",
+  "kitchen-stock": "pantry",
+  ingredients: "ingredients",
+  macros: "nutrition",
+  settings: "settings"
+};
+// The address the page was opened with, applied once household data has loaded
+// (recipes and settings need it). Until then the URL is left alone.
+let pendingRoute = window.location.hash;
+let lastRouteHash = window.location.hash;
+let routeSyncQueued = false;
+
+function routeForCurrentView() {
+  const { view } = currentAppView();
+  if (view === "recipe-editor") {
+    const id = document.getElementById("recipe-form").dataset.editingId;
+    return id ? `#recipes/${encodeURIComponent(id)}/edit` : "#recipes/new";
+  }
+  if (view === "recipes" && openRecipeId) return `#recipes/${encodeURIComponent(openRecipeId)}`;
+  return `#${viewSlugs[view] || "plan"}`;
+}
+
+// Deferred a tick so multi-step navigation (open the editor, then fill it with a
+// recipe) records the finished page rather than the first step.
+function syncRoute() {
+  if (pendingRoute !== null || routeSyncQueued) return;
+  routeSyncQueued = true;
+  queueMicrotask(() => {
+    routeSyncQueued = false;
+    const hash = routeForCurrentView();
+    lastRouteHash = hash;
+    if (hash !== window.location.hash) history.pushState(null, "", hash);
+  });
+}
+
+function applyRoute(hash) {
+  const [slug = "", id = "", action = ""] = String(hash || "").replace(/^#\/?/, "").split("/").map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch (error) {
+      return part;
+    }
+  });
+  const view = Object.keys(viewSlugs).find((key) => viewSlugs[key] === slug) || "planner";
+
+  if (view === "recipes") {
+    if (id === "new") return showRecipeEditor();
+    const recipe = id ? recipeById(id) : null;
+    if (recipe && action === "edit") return showRecipeEditor(recipe);
+    openRecipeId = recipe ? recipe.id : null;
+    return showRecipesView();
+  }
+  if (view === "settings") return openProfileDialog();
+  if (view === "macros" && hideNutritionPreference) return activateAppView("planner", "planner");
+  activateAppView(view, view);
+}
+
+function applyPendingRoute() {
+  if (pendingRoute === null) return;
+  const hash = pendingRoute;
+  pendingRoute = null;
+  applyRoute(hash);
+  syncRoute();
+}
+
+function setupRouting() {
+  const follow = () => {
+    if (pendingRoute !== null || window.location.hash === lastRouteHash) return;
+    lastRouteHash = window.location.hash;
+    applyRoute(window.location.hash);
+  };
+  window.addEventListener("popstate", follow);
+  window.addEventListener("hashchange", follow);
 }
 
 function currentAppView() {
@@ -1297,6 +1371,7 @@ function renderRecipes() {
   const filters = document.getElementById("recipe-filters");
   const search = document.getElementById("recipe-search").value.trim().toLowerCase();
   const selectedRecipe = openRecipeId ? recipeById(openRecipeId) : null;
+  if (view.classList.contains("active")) syncRoute();
 
   // Reading a recipe swaps the collection header for the recipe's own back link.
   view.classList.toggle("is-reading", Boolean(selectedRecipe));
@@ -1765,18 +1840,29 @@ function recipeSteps(recipe) {
 }
 
 // Steps may carry explicit ingredient labels written as {{Ingredient Name}} or
-// {{Ingredient Name|the words as they read in the step}}. Anything untagged still
-// falls back to matching ingredient names automatically.
+// {{Ingredient Name|the words as they read in the step}}. An ingredient listed more
+// than once can be pinned to one of its rows as {{Ingredient Name#2|...}}.
+// Anything untagged still falls back to matching ingredient names automatically.
 const stepTagPattern = /\{\{([^{}|]+?)(?:\|([^{}]*?))?\}\}/g;
 
-function stepTagMarkup(name, text) {
+// "Granulated Sugar#2" -> { name: "Granulated Sugar", use: 2 }; no suffix -> use 0.
+function parseStepTagTarget(target) {
+  const match = String(target ?? "").trim().match(/^(.*?)#(\d+)$/);
+  return match ? { name: match[1].trim(), use: Number(match[2]) } : { name: String(target ?? "").trim(), use: 0 };
+}
+
+function stepTagMarkup(target, text) {
+  const { name } = parseStepTagTarget(target);
   const label = String(text ?? "").trim() || name;
-  return label.toLowerCase() === name.toLowerCase() ? `{{${name}}}` : `{{${name}|${label}}}`;
+  return label.toLowerCase() === String(target).toLowerCase() ? `{{${target}}}` : `{{${target}|${label}}}`;
 }
 
 // The step as a reader sees it, with every label reduced to its visible words.
 function stripStepTags(step) {
-  return String(step ?? "").replace(stepTagPattern, (match, name, text) => (text ?? name).trim() || name.trim());
+  return String(step ?? "").replace(stepTagPattern, (match, target, text) => {
+    const { name } = parseStepTagTarget(target);
+    return (text ?? name).trim() || name;
+  });
 }
 
 // Every amount listed for each ingredient name, in list order, so an ingredient
@@ -1801,6 +1887,13 @@ function mentionMarkup(text, amount) {
 // mention of a repeated ingredient shows its nth listed amount. An ingredient
 // listed once shows that amount every time; mentions past the last listed use
 // of a repeated one show no amount rather than a wrong one.
+// Matches any of the given ingredient names as whole words, longest first so
+// "light brown sugar" wins over "sugar". Shared by the recipe page and the editor.
+function ingredientMentionPattern(names) {
+  const sorted = [...new Set(names.map((name) => String(name).toLowerCase()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  return sorted.length ? new RegExp(`\\b(${sorted.map(escapeRegExp).join("|")})\\b`, "gi") : null;
+}
+
 function highlightIngredientMentions(step, recipe, seen = new Map()) {
   const lists = recipeIngredientAmounts(recipe);
   const amounts = {
@@ -1813,8 +1906,7 @@ function highlightIngredientMentions(step, recipe, seen = new Map()) {
       return list[index] || "";
     }
   };
-  const names = [...lists.keys()].sort((a, b) => b.length - a.length);
-  const autoPattern = names.length ? new RegExp(`\\b(${names.map(escapeRegExp).join("|")})\\b`, "gi") : null;
+  const autoPattern = ingredientMentionPattern([...lists.keys()]);
 
   // Untagged stretches keep the old automatic name matching.
   const autoHighlight = (text) => {
@@ -1833,10 +1925,12 @@ function highlightIngredientMentions(step, recipe, seen = new Map()) {
   let html = "";
   for (const match of String(step ?? "").matchAll(stepTagPattern)) {
     html += autoHighlight(step.slice(cursor, match.index));
-    const name = match[1].trim();
+    const { name, use } = parseStepTagTarget(match[1]);
     const label = (match[2] ?? name).trim() || name;
-    // A label pointing at an ingredient the recipe no longer has degrades to plain words.
-    html += mentionMarkup(label, amounts.get(name.toLowerCase()) || "");
+    // A label pinned to one row of a repeated ingredient shows that row's amount;
+    // one pointing at an ingredient the recipe no longer has degrades to plain words.
+    const pinned = use ? lists.get(name.toLowerCase())?.[use - 1] : undefined;
+    html += mentionMarkup(label, pinned ?? (amounts.get(name.toLowerCase()) || ""));
     cursor = match.index + match[0].length;
   }
   return html + autoHighlight(step.slice(cursor));
@@ -1914,7 +2008,7 @@ const pluralizableUnits = new Set([
 function pluralizeUnit(unit, quantity) {
   const normalized = normalizeMeasurementUnit(unit);
   if (!normalized || !pluralizableUnits.has(normalized)) return normalized;
-  if (roundTo(Number(quantity || 0), 2) === 1) return normalized;
+  if (roundTo(Number(quantity || 0), 2) <= 1) return normalized;
   return /(?:s|x|z|ch|sh)$/.test(normalized) ? `${normalized}es` : `${normalized}s`;
 }
 
@@ -3734,6 +3828,21 @@ function setupForms() {
     recipeDraftPreview = URL.createObjectURL(blob);
     renderRecipePhotoPreview();
   });
+  bindPhotoLink({
+    kind: "recipe",
+    maxWidth: RECIPE_PHOTO_MAX_WIDTH,
+    setMessage: setRecipePhotoMessage,
+    apply: ({ blob, link }) => {
+      clearRecipePhotoDraft();
+      if (blob) {
+        recipeDraftBlob = blob;
+        recipeDraftPreview = URL.createObjectURL(blob);
+      } else {
+        recipeDraftImage = link;
+      }
+      renderRecipePhotoPreview();
+    }
+  });
   document.getElementById("remove-recipe-photo").addEventListener("click", () => {
     clearRecipePhotoDraft();
     recipeDraftImage = "";
@@ -3920,6 +4029,21 @@ function setupForms() {
     ingredientDraftPreview = URL.createObjectURL(blob);
     renderIngredientPhotoPreview();
   });
+  bindPhotoLink({
+    kind: "ingredient",
+    maxWidth: INGREDIENT_PHOTO_MAX_WIDTH,
+    setMessage: setIngredientPhotoMessage,
+    apply: ({ blob, link }) => {
+      clearIngredientPhotoDraft();
+      if (blob) {
+        ingredientDraftBlob = blob;
+        ingredientDraftPreview = URL.createObjectURL(blob);
+      } else {
+        ingredientDraftImage = link;
+      }
+      renderIngredientPhotoPreview();
+    }
+  });
   document.getElementById("remove-ingredient-photo").addEventListener("click", () => {
     clearIngredientPhotoDraft();
     ingredientDraftImage = "";
@@ -3972,22 +4096,41 @@ function setupForms() {
   addRecipeStepRow();
 }
 
+// Step text is edited as plain words; the labels live beside it as ranges and are
+// written back as {{Ingredient|words}} only when the recipe is saved.
+const stepEditorTags = new WeakMap();
+const stepHighlightRenderers = new Set();
+
+// Ingredient rows changed: names the steps mention automatically may have too.
+function refreshStepHighlights() {
+  stepHighlightRenderers.forEach((render) => render());
+}
+
 function addRecipeStepRow(value = "") {
   const container = document.getElementById("recipe-step-rows");
   const row = document.createElement("div");
   row.className = "recipe-step-row";
+  const { text, tags } = parseStepTags(value);
   row.innerHTML = `
     <button class="recipe-step-number drag-handle" type="button" aria-label="Reorder step" title="Drag to reorder, or use the arrow keys"></button>
-    <label>
-      <span class="recipe-step-label">Step</span>
-      <textarea class="recipe-step-input" required placeholder="Describe this step...">${escapeHtml(value)}</textarea>
+    <div class="recipe-step-field">
+      <label>
+        <span class="recipe-step-label">Step</span>
+        <span class="recipe-step-input-wrap">
+          <textarea class="recipe-step-input" required placeholder="Describe this step...">${escapeHtml(text)}</textarea>
+          <span class="recipe-step-highlights" aria-hidden="true"></span>
+        </span>
+      </label>
+      <!-- Outside the <label>: clicks inside a label can be redirected to its textarea,
+           which closed the dropdown before a choice registered. -->
       <span class="recipe-step-tools">
         <select class="recipe-step-tag" aria-label="Label the selected words as an ingredient"></select>
         <span class="recipe-step-tag-hint"></span>
       </span>
-    </label>
+    </div>
     <button class="row-remove" type="button" aria-label="Remove step" title="Remove">×</button>`;
 
+  stepEditorTags.set(row.querySelector(".recipe-step-input"), tags);
   bindStepIngredientTagger(row);
 
   row.querySelector(".row-remove").addEventListener("click", () => {
@@ -4002,106 +4145,299 @@ function addRecipeStepRow(value = "") {
 
 const untagStepValue = "__untag__";
 
-// The names currently typed into this recipe's ingredient rows — the same index the
-// step labels have to resolve against when the recipe is rendered.
-function recipeFormIngredientNames() {
-  const names = [...document.querySelectorAll(".recipe-ingredient-search")]
-    .map((input) => input.value.trim())
-    .filter(Boolean);
-  return [...new Map(names.map((name) => [name.toLowerCase(), name])).values()].sort((a, b) => a.localeCompare(b));
+// "Add {{Granulated Sugar#1|sugar}}" -> text "Add sugar" plus a label over "sugar".
+function parseStepTags(step) {
+  const source = String(step ?? "");
+  const tags = [];
+  let text = "";
+  let cursor = 0;
+  for (const match of source.matchAll(stepTagPattern)) {
+    text += source.slice(cursor, match.index);
+    const { name } = parseStepTagTarget(match[1]);
+    const label = (match[2] ?? name).trim() || name;
+    tags.push({ start: text.length, end: text.length + label.length, target: match[1].trim() });
+    text += label;
+    cursor = match.index + match[0].length;
+  }
+  return { text: text + source.slice(cursor), tags };
 }
 
-// Select words in a step, pick the ingredient they refer to, and the step stores
-// a {{label}} so the saved recipe highlights those words with their amount.
+function serializeStepTags(text, tags) {
+  let result = "";
+  let cursor = 0;
+  [...tags].sort((a, b) => a.start - b.start).forEach((tag) => {
+    const label = text.slice(tag.start, tag.end);
+    if (tag.start < cursor || !label.trim() || /[{}|]/.test(label)) return;
+    result += text.slice(cursor, tag.start) + stepTagMarkup(tag.target, label);
+    cursor = tag.end;
+  });
+  return result + text.slice(cursor);
+}
+
+// Keeps labels on the same words while the text around them is edited. Typing
+// inside a label grows it; an edit that cuts across a label's edge removes it.
+function shiftStepTags(tags, before, after) {
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) suffix += 1;
+  const editEnd = before.length - suffix;
+  const delta = after.length - before.length;
+
+  return tags.flatMap((tag) => {
+    if (tag.end <= prefix) return [tag];
+    if (tag.start >= editEnd) return [{ ...tag, start: tag.start + delta, end: tag.end + delta }];
+    if (prefix >= tag.start && editEnd <= tag.end) {
+      const end = tag.end + delta;
+      return end > tag.start ? [{ ...tag, end }] : [];
+    }
+    return [];
+  });
+}
+
+function stepTagsTouching(tags, start, end) {
+  return tags.filter((tag) => (start === end ? tag.start <= start && start <= tag.end : tag.start < end && tag.end > start));
+}
+
+// Select words in a step, pick the ingredient they refer to, and the saved recipe
+// highlights those words with their amount.
 function bindStepIngredientTagger(row) {
   const textarea = row.querySelector(".recipe-step-input");
+  const layer = row.querySelector(".recipe-step-highlights");
   const select = row.querySelector(".recipe-step-tag");
   const hint = row.querySelector(".recipe-step-tag-hint");
   let selection = { start: 0, end: 0 };
+  let previousText = textarea.value;
+  const tags = () => stepEditorTags.get(textarea) || [];
+  const setTags = (next) => stepEditorTags.set(textarea, next);
 
-  const remember = () => {
-    selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+  // The highlight layer mirrors the textarea's box and text exactly, with the
+  // labelled words wrapped in <mark>, so the tint lands behind the right words.
+  const renderHighlights = () => {
+    const style = getComputedStyle(textarea);
+    [
+      "boxSizing", "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing",
+      "wordSpacing", "textIndent", "textTransform", "tabSize", "paddingTop", "paddingRight",
+      "paddingBottom", "paddingLeft", "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth"
+    ].forEach((property) => {
+      layer.style[property] = style[property];
+    });
+    const scrollbar = textarea.offsetWidth - textarea.clientWidth - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
+    if (scrollbar > 0) layer.style.paddingRight = `${parseFloat(style.paddingRight) + scrollbar}px`;
+    layer.style.width = `${textarea.offsetWidth}px`;
+    layer.style.height = `${textarea.offsetHeight}px`;
+
+    const text = textarea.value;
+    // Words the recipe page would pick up on its own (an ingredient's name, with an
+    // amount) are tinted too, so the editor shows exactly what will turn pink.
+    const autoPattern = ingredientMentionPattern(recipeFormLabelChoices().filter((choice) => choice.amount).map((choice) => choice.name));
+    const plain = (part) => {
+      if (!autoPattern) return escapeHtml(part);
+      let out = "";
+      let at = 0;
+      for (const match of part.matchAll(autoPattern)) {
+        out += escapeHtml(part.slice(at, match.index)) + `<mark class="is-auto">${escapeHtml(match[0])}</mark>`;
+        at = match.index + match[0].length;
+      }
+      return out + escapeHtml(part.slice(at));
+    };
+    let html = "";
+    let cursor = 0;
+    [...tags()].sort((a, b) => a.start - b.start).forEach((tag) => {
+      if (tag.start < cursor) return;
+      html += plain(text.slice(cursor, tag.start));
+      html += `<mark>${escapeHtml(text.slice(tag.start, tag.end))}</mark>`;
+      cursor = tag.end;
+    });
+    // A trailing newline needs a character after it to take up its line.
+    layer.innerHTML = `${html}${plain(text.slice(cursor))} `;
+    layer.scrollTop = textarea.scrollTop;
   };
-  ["keyup", "mouseup", "select", "blur"].forEach((event) => textarea.addEventListener(event, remember));
+
+  const choiceFor = (target) => recipeFormLabelChoices().find((choice) => choice.value.toLowerCase() === target.toLowerCase());
 
   const setHint = (message) => {
     hint.textContent = message;
+    delete hint.dataset.selection;
   };
 
   const repopulate = () => {
-    const names = recipeFormIngredientNames();
-    const tagged = countStepTags(textarea.value);
+    const choices = recipeFormLabelChoices();
+    const touching = stepTagsTouching(tags(), selection.start, selection.end).length;
+    // Ingredients that match the highlighted words come first ("brown sugar" ->
+    // Light Brown Sugar, then Granulated Sugar); the rest keep alphabetical order.
+    const picked = textarea.value.slice(selection.start, selection.end);
+    const ranked = choices
+      .map((choice, index) => ({ choice, index, score: labelMatchScore(picked, choice.name) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+    const matches = ranked.filter((entry) => entry.score > 0).map((entry) => entry.choice);
+    const others = ranked.filter((entry) => entry.score <= 0).map((entry) => entry.choice);
+    const options = (list) => list.map((choice) => optionMarkup(choice.value, choice.label)).join("");
+    const groups = matches.length
+      ? `<optgroup label="Best matches">${options(matches)}</optgroup>${others.length ? `<optgroup label="Other ingredients">${options(others)}</optgroup>` : ""}`
+      : options(others);
     select.innerHTML = [
-      optionMarkup("", names.length ? "Label selection as..." : "Add an ingredient first"),
-      ...names.map((name) => optionMarkup(name, name)),
-      tagged ? optionMarkup(untagStepValue, `Remove label${tagged > 1 ? "s" : ""} in selection`) : ""
+      optionMarkup("", choices.length ? "Label selection as..." : "Add an ingredient first"),
+      groups,
+      touching ? optionMarkup(untagStepValue, `Remove label${touching > 1 ? "s" : ""}`) : ""
     ].join("");
     select.value = "";
-    select.disabled = !names.length && !tagged;
+    select.disabled = !choices.length && !touching;
   };
 
-  select.addEventListener("mousedown", repopulate);
-  select.addEventListener("focus", repopulate);
+  // The options are rebuilt while the words are being selected, never as the
+  // dropdown itself opens: rewriting a <select> mid-click swallows the choice.
+  let lastRepopulate = "";
+  const refreshChoices = () => {
+    const key = JSON.stringify([selection, textarea.value.length, tags(), recipeFormLabelChoices()]);
+    if (key === lastRepopulate) return;
+    lastRepopulate = key;
+    repopulate();
+  };
+
+  // The textarea's own highlight disappears once focus moves to the dropdown, so
+  // the remembered words are echoed under the step until they are labelled.
+  const remember = () => {
+    selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+    const picked = textarea.value.slice(selection.start, selection.end).trim();
+    const [current] = stepTagsTouching(tags(), selection.start, selection.end);
+    if (picked) {
+      hint.innerHTML = `Labelling <mark class="recipe-step-selection">${escapeHtml(picked)}</mark> - choose an ingredient`;
+      hint.dataset.selection = "true";
+    } else if (current) {
+      const choice = choiceFor(current.target);
+      const words = textarea.value.slice(current.start, current.end);
+      hint.innerHTML = `<mark class="recipe-step-selection">${escapeHtml(words)}</mark> is labelled ${escapeHtml(choice?.label || parseStepTagTarget(current.target).name)}`;
+      hint.dataset.selection = "true";
+    } else if (hint.dataset.selection) {
+      setHint("");
+    }
+    refreshChoices();
+  };
+
+  ["keyup", "mouseup", "touchend", "select", "selectionchange", "blur"].forEach((event) => textarea.addEventListener(event, remember));
+  // Mobile browsers adjust selections with drag handles, which fire no key or mouse events.
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement === textarea) remember();
+  });
+  textarea.addEventListener("focus", refreshChoices);
+  textarea.addEventListener("input", () => {
+    setTags(shiftStepTags(tags(), previousText, textarea.value));
+    previousText = textarea.value;
+    renderHighlights();
+  });
+  textarea.addEventListener("scroll", () => {
+    layer.scrollTop = textarea.scrollTop;
+  });
+  // Covers the resize handle, a narrower window and the row first being attached.
+  if (typeof ResizeObserver === "function") new ResizeObserver(renderHighlights).observe(textarea);
+
   select.addEventListener("change", () => {
     const choice = select.value;
     select.value = "";
     if (!choice) return;
 
-    const { start, end } = selection;
-    if (start === end) {
-      setHint("Select the words in the step first.");
-      return;
+    let { start, end } = selection;
+    if (choice === untagStepValue) {
+      const touching = stepTagsTouching(tags(), start, end);
+      setTags(tags().filter((tag) => !touching.includes(tag)));
+      setHint(touching.length > 1 ? "Labels removed." : "Label removed.");
+    } else {
+      // Trim stray spaces so the label covers just the words.
+      const text = textarea.value;
+      while (start < end && /\s/.test(text[start])) start += 1;
+      while (end > start && /\s/.test(text[end - 1])) end -= 1;
+      if (start === end) {
+        setHint("Select the words in the step first.");
+        return;
+      }
+      if (/[{}|]/.test(text.slice(start, end))) {
+        setHint("That selection cannot be labelled - avoid { } and | characters.");
+        return;
+      }
+      const kept = tags().filter((tag) => !(tag.start < end && tag.end > start));
+      setTags([...kept, { start, end, target: choice }].sort((a, b) => a.start - b.start));
+      setHint(`Labelled as ${choiceFor(choice)?.label || parseStepTagTarget(choice).name}.`);
     }
 
-    const result = choice === untagStepValue
-      ? removeStepTagsInSelection(textarea.value, start, end)
-      : addStepTag(textarea.value, start, end, choice);
-
-    if (!result) {
-      setHint("That selection cannot be labelled - avoid { } and | characters.");
-      return;
-    }
-
-    textarea.value = result.value;
+    renderHighlights();
     textarea.focus();
-    textarea.setSelectionRange(result.start, result.end);
-    remember();
-    setHint(choice === untagStepValue ? "Label removed." : `Labelled as ${choice}.`);
+    textarea.setSelectionRange(end, end);
+    selection = { start: end, end };
+    refreshChoices();
   });
 
-  repopulate();
+  // Rows that leave the page stop listening for ingredient changes.
+  const renderIfAttached = () => {
+    if (!row.isConnected && row.dataset.attached) stepHighlightRenderers.delete(renderIfAttached);
+    else if (row.isConnected) {
+      row.dataset.attached = "true";
+      renderHighlights();
+    }
+  };
+  stepHighlightRenderers.add(renderIfAttached);
+
+  renderHighlights();
+  refreshChoices();
 }
 
-function countStepTags(value) {
-  return [...String(value ?? "").matchAll(stepTagPattern)].length;
+// One label choice per ingredient row in the editor: "Granulated Sugar - ½ cup".
+// A name listed on several rows gets a choice per row, pinned with "#n" (in list
+// order, matching how the saved recipe numbers its uses) so each use keeps its amount.
+function recipeFormLabelChoices() {
+  const rows = [...document.querySelectorAll(".recipe-ingredient-row")].map((row) => {
+    const name = row.querySelector(".recipe-ingredient-search").value.trim();
+    const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
+    const measure = row.querySelector(".recipe-ingredient-measure").value || "serving";
+    const ingredient = state.ingredients[ingredientKey(name)];
+    const amount = !(quantity > 0) ? "" : ingredient
+      ? recipeIngredientAmount({ quantity, measure }, ingredient)
+      : amountParts(quantity, measure === "serving" ? "" : measure).text;
+    return { name, amount, complete: Boolean(name) && quantity > 0 };
+  }).filter((row) => row.name);
+
+  const totals = new Map();
+  rows.forEach((row) => {
+    if (row.complete) totals.set(row.name.toLowerCase(), (totals.get(row.name.toLowerCase()) || 0) + 1);
+  });
+  const seen = new Map();
+  const choices = rows.map((row) => {
+    const key = row.name.toLowerCase();
+    if (!row.complete) return totals.has(key) ? null : { value: row.name, name: row.name, label: row.name };
+    const use = (seen.get(key) || 0) + 1;
+    seen.set(key, use);
+    const repeated = totals.get(key) > 1;
+    return {
+      value: repeated ? `${row.name}#${use}` : row.name,
+      name: row.name,
+      amount: row.amount,
+      label: row.amount ? `${row.name} - ${row.amount}` : row.name
+    };
+  }).filter(Boolean);
+
+  const unique = [...new Map(choices.map((choice) => [choice.value.toLowerCase(), choice])).values()];
+  return unique.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function addStepTag(value, start, end, name) {
-  const selected = value.slice(start, end).trim();
-  if (!selected || /[{}|]/.test(selected)) return null;
-
-  const leading = value.slice(start).indexOf(selected) + start;
-  const tag = stepTagMarkup(name, selected);
-  const next = value.slice(0, leading) + tag + value.slice(leading + selected.length);
-  return { value: next, start: leading, end: leading + tag.length };
-}
-
-function removeStepTagsInSelection(value, start, end) {
-  let result = "";
-  let cursor = 0;
-  let removed = 0;
-  for (const match of String(value).matchAll(stepTagPattern)) {
-    const tagEnd = match.index + match[0].length;
-    result += value.slice(cursor, match.index);
-    // Any label the selection touches is unwrapped back to its visible words.
-    const overlaps = match.index < end && tagEnd > start;
-    result += overlaps ? stripStepTags(match[0]) : match[0];
-    if (overlaps) removed += 1;
-    cursor = tagEnd;
-  }
-  if (!removed) return null;
-  result += value.slice(cursor);
-  return { value: result, start: Math.min(start, result.length), end: Math.min(end, result.length) };
+// How well highlighted step words fit an ingredient name: 0 for no shared words,
+// higher when the name contains the whole phrase or most of its words.
+function labelMatchScore(selected, name) {
+  const words = (text) => String(text || "").toLowerCase().match(/[a-z0-9]+/g)?.map((word) => word.replace(/(?:es|s)$/, "")).filter(Boolean) || [];
+  const picked = words(selected);
+  const target = words(name);
+  if (!picked.length || !target.length) return 0;
+  const shared = picked.filter((word) => target.includes(word)).length;
+  if (!shared) return 0;
+  const phrase = picked.join(" ");
+  const full = target.join(" ");
+  let score = (shared / picked.length) * 50 + (shared / target.length) * 10;
+  if (full === phrase) score += 100;
+  else if (` ${full} `.includes(` ${phrase} `)) score += 40;
+  return score;
 }
 
 function updateRecipeStepNumbers() {
@@ -4112,7 +4448,9 @@ function updateRecipeStepNumbers() {
 }
 
 function collectRecipeSteps() {
-  return [...document.querySelectorAll(".recipe-step-input")].map((input) => input.value.trim()).filter(Boolean);
+  return [...document.querySelectorAll(".recipe-step-input")]
+    .map((input) => serializeStepTags(input.value, stepEditorTags.get(input) || []).trim())
+    .filter(Boolean);
 }
 
 function fillRecipeForm(recipe) {
@@ -4560,6 +4898,7 @@ function containersForIngredientRows(items) {
 }
 
 function refreshRecipeMacroPreview() {
+  refreshStepHighlights();
   const items = collectRecipeIngredients(true) || [];
   const macros = macrosForIngredientRows(items);
   const servings = Math.max(1, Number(document.getElementById("recipe-servings").value) || 1);
@@ -4576,7 +4915,7 @@ function refreshRecipeMacroPreview() {
 // and come back to the recipe once it is saved.
 function openIngredientIndexFor(name) {
   returnToRecipeEditor = true;
-  activateAppView("ingredients", "kitchen-stock");
+  activateAppView("ingredients", "ingredients");
   document.getElementById("back-to-recipe-editor").hidden = false;
   const input = document.getElementById("ingredient-name");
   input.value = name;
@@ -5574,6 +5913,91 @@ function clearIngredientPhotoDraft() {
   ingredientDraftBlob = null;
 }
 
+// A pasted image address (e.g. a Walmart product photo) is downloaded and run through
+// the same resize as a picked file, so it uploads to Storage on save like any photo.
+const PHOTO_LINK_MAX_BYTES = 15 * 1024 * 1024;
+
+function bindPhotoLink({ kind, maxWidth, setMessage, apply }) {
+  const input = document.getElementById(`${kind}-photo-url`);
+  const button = document.getElementById(`${kind}-photo-url-button`);
+  if (!input || !button) return;
+
+  const use = async () => {
+    const url = input.value.trim();
+    if (!url) {
+      setMessage("Paste an image link first.");
+      return;
+    }
+    button.disabled = true;
+    try {
+      const result = await readPhotoLink(url, maxWidth, setMessage);
+      if (!result) return;
+      apply(result);
+      input.value = "";
+    } finally {
+      button.disabled = false;
+    }
+  };
+
+  button.addEventListener("click", use);
+  // Enter would otherwise submit the whole recipe or ingredient form.
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    use();
+  });
+}
+
+function looksLikeImageAddress(url) {
+  return /\.(jpe?g|png|webp|gif|avif)(?:$|[?#])/i.test(url.pathname + url.search) || /(^|\.)walmartimages\.com$/i.test(url.hostname);
+}
+
+async function readPhotoLink(value, maxWidth, setMessage) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    setMessage("That doesn't look like a link. Copy the image address and paste it here.");
+    return null;
+  }
+  if (url.protocol !== "https:" || !safeImageUrl(url.href)) {
+    setMessage("Use an https:// image link.");
+    return null;
+  }
+
+  setMessage("Downloading the image...");
+  try {
+    const response = await withTimeout(
+      fetch(url.href, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer" }),
+      15000,
+      "The download timed out."
+    );
+    if (!response.ok) throw new Error(`The site answered ${response.status}.`);
+    const blob = await response.blob();
+    if (!String(blob.type).startsWith("image/")) {
+      setMessage("That link is a web page, not an image. Right-click the product photo and choose \"Copy image address\".");
+      return null;
+    }
+    if (blob.size > PHOTO_LINK_MAX_BYTES) {
+      setMessage("That image is too large to use.");
+      return null;
+    }
+    // Small WebPs keep their bytes (see readPhotoSelection); everything else is resized to JPEG.
+    const ready = isWebpFile(blob) && blob.size < PHOTO_UPLOAD_MAX_BYTES ? blob : await resizeImageToBlob(blob, maxWidth);
+    setMessage("Photo ready - it uploads when you save.");
+    return { blob: ready };
+  } catch (error) {
+    // Many stores don't allow other sites to download their images. Linking to the
+    // store's copy still shows the photo; it just isn't stored in the household.
+    if (looksLikeImageAddress(url)) {
+      setMessage("That site blocked the download, so the photo links to its copy instead. Save to keep it.");
+      return { link: url.href };
+    }
+    setMessage("Couldn't download that image. Right-click the product photo, choose \"Copy image address\", and paste that.");
+    return null;
+  }
+}
+
 async function readPhotoSelection(event, maxWidth, setMessage) {
   const file = event.target.files?.[0];
   event.target.value = "";
@@ -5856,6 +6280,7 @@ function escapeHtml(value) {
 }
 
 renderTabs();
+setupRouting();
 setupCookDialog();
 setupAddToPlan();
 setupPlannerLayout();
