@@ -1096,6 +1096,180 @@ function mealThumbMarkup(summary) {
   return `<span class="meal-slot-thumb" aria-hidden="true">${content}</span>`;
 }
 
+// ---- Meal picker -----------------------------------------------------------
+// A <select> can't show pictures, so meal slots open this list instead: each
+// recipe with its photo, plus a search box. It writes the choice back into the
+// slot's hidden <select> and fires "change", so planning works exactly as before.
+let mealPicker = null;
+
+function closeMealPicker({ restoreFocus = false } = {}) {
+  if (!mealPicker) return;
+  const { element, trigger, cleanup } = mealPicker;
+  mealPicker = null;
+  cleanup();
+  element.remove();
+  if (restoreFocus && trigger.isConnected) trigger.focus();
+}
+
+function openMealPicker(trigger) {
+  const slot = trigger.closest(".meal-slot");
+  const select = slot?.querySelector(".meal-slot-select");
+  if (!select || select.disabled) return;
+  if (mealPicker?.trigger === trigger) return closeMealPicker({ restoreFocus: true });
+  closeMealPicker();
+
+  const current = select.value;
+  const { day, meal } = select.dataset;
+  const items = [...select.options]
+    .filter((option) => option.value || current)
+    .map((option) => {
+      const value = option.value;
+      if (!value) return { value, label: "Clear this meal", meta: "", thumb: '<span class="meal-slot-thumb" aria-hidden="true">×</span>' };
+      if (value === TAKEOUT_PREFIX) {
+        return { value, label: "Takeout", meta: "Eating out", thumb: '<span class="meal-slot-thumb" aria-hidden="true">🥡</span>' };
+      }
+      const recipe = recipeById(value);
+      const summary = slotSummary(value);
+      return {
+        value,
+        label: option.textContent,
+        meta: [recipe?.category, summary.note].filter(Boolean).join(" · "),
+        thumb: mealThumbMarkup(summary)
+      };
+    });
+  const selectedValue = isTakeoutValue(current) ? TAKEOUT_PREFIX : current;
+
+  const element = document.createElement("div");
+  element.className = "meal-picker";
+  element.setAttribute("role", "dialog");
+  element.setAttribute("aria-label", `Choose ${meal.toLowerCase()} for ${day}`);
+  element.innerHTML = `
+    <div class="meal-picker-head">
+      <strong>${escapeHtml(`${day} · ${meal}`)}</strong>
+      <button class="meal-picker-close" type="button" aria-label="Close">×</button>
+    </div>
+    <input class="meal-picker-search" type="search" placeholder="Search recipes" aria-label="Search recipes" autocomplete="off" />
+    <ul class="meal-picker-list" role="listbox" aria-label="Recipes">
+      ${items.map((item, index) => `
+        <li class="meal-picker-option${item.value ? "" : " is-clear"}" role="option" id="meal-picker-option-${index}" data-value="${escapeHtml(item.value)}"
+          aria-selected="${item.value === selectedValue && item.value !== ""}" data-search="${escapeHtml(item.label.toLowerCase())}">
+          ${item.thumb}
+          <span class="meal-picker-text">
+            <span class="meal-picker-name">${escapeHtml(item.label)}</span>
+            ${item.meta ? `<span class="meal-picker-meta">${escapeHtml(item.meta)}</span>` : ""}
+          </span>
+          ${item.value && item.value === selectedValue ? '<span class="meal-picker-check" aria-hidden="true">✓</span>' : ""}
+        </li>`).join("")}
+    </ul>
+    <p class="meal-picker-empty" hidden>No recipes match.</p>`;
+  document.body.append(element);
+
+  const search = element.querySelector(".meal-picker-search");
+  const list = element.querySelector(".meal-picker-list");
+  const empty = element.querySelector(".meal-picker-empty");
+  const options = () => [...list.querySelectorAll(".meal-picker-option:not([hidden])")];
+  let active = null;
+
+  const setActive = (option) => {
+    list.querySelectorAll(".meal-picker-option.is-active").forEach((item) => item.classList.remove("is-active"));
+    active = option || null;
+    if (!active) return search.removeAttribute("aria-activedescendant");
+    active.classList.add("is-active");
+    search.setAttribute("aria-activedescendant", active.id);
+    active.scrollIntoView({ block: "nearest" });
+  };
+
+  const choose = (value) => {
+    closeMealPicker();
+    if (value === select.value || (value === TAKEOUT_PREFIX && isTakeoutValue(select.value))) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  // Beside the slot on wide screens (flipping above it near the bottom of the
+  // window); phones get a sheet from the bottom edge via CSS instead.
+  const place = () => {
+    if (isNarrowLayout()) {
+      element.classList.add("is-sheet");
+      element.style.cssText = "";
+      return;
+    }
+    element.classList.remove("is-sheet");
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const openUp = below < 320 && above > below;
+    const maxHeight = Math.max(220, Math.min(440, openUp ? above : below));
+    element.style.left = `${left}px`;
+    element.style.width = `${width}px`;
+    element.style.maxHeight = `${maxHeight}px`;
+    element.style.top = openUp ? "" : `${rect.bottom + 6}px`;
+    element.style.bottom = openUp ? `${window.innerHeight - rect.top + 6}px` : "";
+  };
+  place();
+
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    list.querySelectorAll(".meal-picker-option").forEach((option) => {
+      option.hidden = Boolean(query) && (!option.dataset.value || !option.dataset.search.includes(query));
+    });
+    empty.hidden = options().length > 0;
+    setActive(query ? options()[0] : null);
+  });
+
+  search.addEventListener("keydown", (event) => {
+    const visible = options();
+    const index = visible.indexOf(active);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive(visible[Math.min(visible.length - 1, index + 1)] || visible[0]);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive(visible[Math.max(0, index - 1)] || visible[0]);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (active) choose(active.dataset.value);
+    }
+  });
+
+  list.addEventListener("click", (event) => {
+    const option = event.target.closest(".meal-picker-option");
+    if (option) choose(option.dataset.value);
+  });
+  element.querySelector(".meal-picker-close").addEventListener("click", () => closeMealPicker({ restoreFocus: true }));
+
+  const onPointerDown = (event) => {
+    if (!element.contains(event.target) && !trigger.contains(event.target)) closeMealPicker();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") closeMealPicker({ restoreFocus: true });
+  };
+  const onScroll = (event) => {
+    if (!element.contains(event.target)) place();
+  };
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("keydown", onKeyDown);
+  window.addEventListener("resize", place);
+  window.addEventListener("scroll", onScroll, true);
+  mealPicker = {
+    element,
+    trigger,
+    cleanup: () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+    }
+  };
+
+  // Typing straight away is handy with a keyboard; on a phone it would throw
+  // the keyboard over the list, so the sheet opens without focusing search.
+  if (!isNarrowLayout()) search.focus({ preventScroll: true });
+  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
 function mealSlotMarkup(day, meal, value, isToday = false) {
   const takeout = isTakeoutValue(value);
   const summary = slotSummary(value);
@@ -1113,9 +1287,11 @@ function mealSlotMarkup(day, meal, value, isToday = false) {
           ${filled && summary.note ? `<span class="meal-slot-meta">${escapeHtml(summary.note)}</span>` : ""}
         </span>
         <span class="meal-slot-chevron" aria-hidden="true">▾</span>
-        <select class="meal-slot-select" id="${day}-${meal}" aria-label="${day} ${meal}" data-day="${day}" data-meal="${meal}">
+        <select class="meal-slot-select" id="${day}-${meal}" aria-hidden="true" tabindex="-1" data-day="${day}" data-meal="${meal}">
           ${recipeOptions(value)}
         </select>
+        <button class="meal-slot-open" type="button" data-pick-meal="${day}-${meal}" aria-haspopup="dialog"
+          aria-label="${escapeHtml(`${day} ${meal}: ${filled ? summary.label : "nothing planned"}. Choose a recipe`)}"></button>
       </div>
       <input
         class="takeout-name"
@@ -1131,6 +1307,7 @@ function mealSlotMarkup(day, meal, value, isToday = false) {
 }
 
 function renderPlanner() {
+  if (mealPicker && !document.getElementById("week-grid").contains(mealPicker.trigger)) closeMealPicker();
   const planner = ensureActivePlanner();
   const plan = getCurrentPlan();
   const grid = document.getElementById("week-grid");
@@ -1268,6 +1445,10 @@ function renderPlanner() {
           ?.focus();
       }
     });
+  });
+
+  grid.querySelectorAll("[data-pick-meal]").forEach((button) => {
+    button.addEventListener("click", () => openMealPicker(button));
   });
 
   grid.querySelectorAll(".takeout-name").forEach((input) => {
@@ -1464,7 +1645,17 @@ function renderRecipes() {
     detail.querySelector("[data-edit-open-recipe]").addEventListener("click", () => {
       showRecipeEditor(selectedRecipe);
     });
-    detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(selectedRecipe));
+    detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(scaledRecipe(selectedRecipe, recipeScale(selectedRecipe.id))));
+    detail.querySelectorAll("[data-recipe-scale]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = Number(button.dataset.recipeScale);
+        if (value === 1) recipeScales.delete(selectedRecipe.id);
+        else recipeScales.set(selectedRecipe.id, value);
+        const top = window.scrollY;
+        renderRecipes();
+        window.scrollTo({ top });
+      });
+    });
     detail.querySelector("[data-add-to-plan]").addEventListener("click", () => openAddToPlan(selectedRecipe));
     detail.querySelector("[data-undo-cook]")?.addEventListener("click", undoStockDeduction);
     detail.querySelectorAll("[data-ingredient-check]").forEach((box) => {
@@ -1656,7 +1847,66 @@ function recipeCatalogueVisual(recipe) {
   return '<span class="recipe-catalogue-visual" aria-hidden="true"></span>';
 }
 
-function recipeDetailMarkup(recipe) {
+// ---- Recipe scaling ---------------------------------------------------------
+// The recipe page can show half, double or triple amounts. The saved recipe never
+// changes; the page renders a scaled copy instead.
+const recipeScaleOptions = [
+  { value: 0.5, label: "½×" },
+  { value: 1, label: "1×" },
+  { value: 2, label: "2×" },
+  { value: 3, label: "3×" }
+];
+// Per recipe, for this visit: reopening a recipe keeps the size you picked.
+const recipeScales = new Map();
+
+function recipeScale(recipeId) {
+  return recipeScales.get(recipeId) || 1;
+}
+
+// "1 1/2 cups flour" x2 -> "3 cups flour". Only the leading amount is scaled, and a
+// word unit after it is re-pluralised to match.
+function scaleIngredientText(text, factor) {
+  const match = String(text).match(/^(\s*)((?:\d+\s+)?[\d./¼-¾⅐-⅞]+)(\s+)([A-Za-z]+)?/);
+  if (!match) return text;
+  const quantity = parseFractionInput(match[2]);
+  if (!(quantity > 0)) return text;
+  const scaled = formatQuantity(roundTo(quantity * factor, 3));
+  const word = match[4] || "";
+  const unit = word ? normalizeMeasurementUnit(word) : "";
+  const unitText = unit && (knownServingUnit(unit) || unit === "container") ? pluralizeUnit(unit, quantity * factor) : word;
+  return `${match[1]}${scaled}${match[3]}${unitText}${String(text).slice(match[0].length)}`;
+}
+
+function scaledRecipe(recipe, factor) {
+  if (factor === 1) return recipe;
+  const copy = {
+    ...recipe,
+    servings: Number(recipe.servings || 1) * factor,
+    ingredients: (recipe.ingredients || []).map((item) =>
+      typeof item === "string" ? scaleIngredientText(item, factor) : item && typeof item === "object" ? { ...item, quantity: Number(item.quantity || 0) * factor } : item
+    )
+  };
+  // Recipes without linked ingredients carry their nutrition as stored totals.
+  nutrients.forEach((nutrient) => {
+    const value = Number(recipe[nutrient.key]);
+    if (Number.isFinite(value) && recipe[nutrient.key] !== undefined && recipe[nutrient.key] !== "") copy[nutrient.key] = value * factor;
+  });
+  return copy;
+}
+
+function recipeScaleMarkup(recipe) {
+  const current = recipeScale(recipe.id);
+  return `
+    <div class="recipe-scale" role="group" aria-label="Recipe size">
+      ${recipeScaleOptions
+        .map((option) => `<button class="recipe-scale-option" type="button" data-recipe-scale="${option.value}" aria-pressed="${option.value === current}">${option.label}</button>`)
+        .join("")}
+    </div>`;
+}
+
+function recipeDetailMarkup(savedRecipe) {
+  const scale = recipeScale(savedRecipe.id);
+  const recipe = scaledRecipe(savedRecipe, scale);
   const macros = recipeMacros(recipe);
   const containers = recipeContainers(recipe);
   const steps = recipeSteps(recipe);
@@ -1679,7 +1929,7 @@ function recipeDetailMarkup(recipe) {
         ${image ? `<img class="recipe-detail-image" src="${escapeHtml(image)}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
       </div>
       <div class="recipe-hero-body">
-        <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}</p>
+        <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}${scale === 1 ? "" : ` · ${escapeHtml(recipeScaleOptions.find((option) => option.value === scale)?.label || `${scale}×`)} recipe`}</p>
         <h2>${escapeHtml(recipe.name)}</h2>
         ${recipe.notes ? `<p class="recipe-hero-notes">${escapeHtml(recipe.notes)}</p>` : ""}
         ${stockLine}
@@ -1696,7 +1946,10 @@ function recipeDetailMarkup(recipe) {
     </div>
     <div class="recipe-detail-layout">
       <section class="recipe-detail-ingredients">
-        <h3>Ingredients · ${recipe.ingredients.length}</h3>
+        <div class="recipe-ingredients-heading">
+          <h3>Ingredients · ${recipe.ingredients.length}</h3>
+          ${recipeScaleMarkup(recipe)}
+        </div>
         ${stockLine.replace("recipe-hero-stock", "recipe-hero-stock recipe-tab-stock")}
         <ul class="ingredient-checklist">
           ${recipe.ingredients
@@ -6353,6 +6606,7 @@ function updateDataControls() {
   const disabled = !canWriteCloudData();
   const selectors = [
     "#week-grid select",
+    "#week-grid .meal-slot-open",
     "#week-grid input",
     "#clear-week",
     "#recipe-form input",
@@ -6395,7 +6649,7 @@ function updateDataControls() {
   ];
 
   document.querySelectorAll(selectors.join(",")).forEach((element) => {
-    const needsPlanner = element.matches("#week-grid select, #clear-week");
+    const needsPlanner = element.matches("#week-grid select, #week-grid .meal-slot-open, #clear-week");
     const receiptBusy = element.closest("#stock-receipt-import")?.getAttribute("aria-busy") === "true";
     element.disabled = disabled || receiptBusy || (needsPlanner && !activePlanner());
   });
