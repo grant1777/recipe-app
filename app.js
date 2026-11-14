@@ -258,6 +258,33 @@ let recipeCanMakeOnly = false;
 let favoriteRecipeIds = new Set();
 let recipeFavoritesOnly = false;
 let recipeCategoryFilter = "";
+
+// The Recipes page remembers its filter chips (Favorites, Can make now, a category)
+// in this browser, so a refresh comes back to the same list.
+const recipeFiltersStorageKey = "recipe-filters";
+
+function loadRecipeFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(recipeFiltersStorageKey) || "{}");
+    recipeFavoritesOnly = Boolean(saved.favoritesOnly);
+    recipeCanMakeOnly = Boolean(saved.canMakeOnly);
+    recipeCategoryFilter = typeof saved.category === "string" ? saved.category : "";
+  } catch (error) {
+    // Storage blocked or unreadable: start with no filters.
+  }
+}
+
+function saveRecipeFilters() {
+  try {
+    localStorage.setItem(recipeFiltersStorageKey, JSON.stringify({
+      favoritesOnly: recipeFavoritesOnly,
+      canMakeOnly: recipeCanMakeOnly,
+      category: recipeCategoryFilter
+    }));
+  } catch (error) {
+    // The filters still work for this visit when storage is unavailable.
+  }
+}
 // Ingredients ticked off while cooking, per recipe. Kept for the session only.
 const recipeIngredientChecks = new Map();
 // Set when "Add it" leaves the recipe editor for the ingredient index.
@@ -523,7 +550,6 @@ async function handleAuthChange(user) {
   hideNutritionPreference = false;
   personalNutrition = defaultPersonalNutrition();
   favoriteRecipeIds = new Set();
-  recipeFavoritesOnly = false;
   applyNutritionVisibility();
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
@@ -1459,6 +1485,13 @@ function renderRecipes() {
   catalogue.hidden = false;
   filters.hidden = false;
 
+  // A remembered category no recipe uses any more would hide everything with no
+  // chip left to clear it, so it is dropped once recipes have loaded.
+  if (recipeCategoryFilter && state.recipes.length && !state.recipes.some((recipe) => recipe.category === recipeCategoryFilter)) {
+    recipeCategoryFilter = "";
+    saveRecipeFilters();
+  }
+
   const searched = state.recipes.filter((recipe) => !search || recipeSearchText(recipe).includes(search));
   const ready = new Set(searched.filter((recipe) => recipeStockCoverage(recipe).ready).map((recipe) => recipe.id));
   const recipes = searched
@@ -1470,15 +1503,18 @@ function renderRecipes() {
   filters.innerHTML = recipeFilterMarkup(recipes.length);
   filters.querySelector("[data-can-make]").addEventListener("click", () => {
     recipeCanMakeOnly = !recipeCanMakeOnly;
+    saveRecipeFilters();
     renderRecipes();
   });
   filters.querySelector("[data-favorites-only]").addEventListener("click", () => {
     recipeFavoritesOnly = !recipeFavoritesOnly;
+    saveRecipeFilters();
     renderRecipes();
   });
   filters.querySelectorAll("[data-category-filter]").forEach((chip) => {
     chip.addEventListener("click", () => {
       recipeCategoryFilter = recipeCategoryFilter === chip.dataset.categoryFilter ? "" : chip.dataset.categoryFilter;
+      saveRecipeFilters();
       renderRecipes();
     });
   });
@@ -6386,6 +6422,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+loadRecipeFilters();
 renderTabs();
 setupRouting();
 setupCookDialog();
