@@ -846,10 +846,20 @@ function upcomingPlannedRecipes() {
 
 function renderTabs() {
   document.querySelectorAll(".tab-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      activateAppView(button.dataset.tab, button.dataset.tab);
-    });
+    button.addEventListener("click", () => openTabHome(button.dataset.tab));
   });
+}
+
+// A header tab always lands on that section's main page: Recipes from inside a
+// recipe (or the editor) goes back to the recipe list, not the open recipe.
+function openTabHome(tab) {
+  if (tab === "recipes") {
+    openRecipeId = null;
+    showRecipesView();
+  } else {
+    activateAppView(tab, tab);
+  }
+  window.scrollTo({ top: 0 });
 }
 
 function activateAppView(viewName, activeTab = viewName) {
@@ -888,13 +898,44 @@ let pendingRoute = window.location.hash;
 let lastRouteHash = window.location.hash;
 let routeSyncQueued = false;
 
+// "Pumpkin Snickerdoodles" -> "pumpkin-snickerdoodles". Accents are folded and
+// anything that isn't a letter or digit becomes a single dash.
+function slugify(text) {
+  return String(text || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// A recipe's address is its title. Two recipes with the same title get a short
+// piece of their id added so each still has its own link.
+function recipeSlug(recipe) {
+  const base = slugify(recipe?.name) || "recipe";
+  const shared = state.recipes.some((other) => other.id !== recipe.id && (slugify(other.name) || "recipe") === base);
+  return shared ? `${base}-${String(recipe.id).slice(0, 6)}` : base;
+}
+
+function recipeRouteSlug(id) {
+  const recipe = recipeById(id);
+  return recipe ? recipeSlug(recipe) : encodeURIComponent(id);
+}
+
+// Title links first; links made before titles were used carry the raw id.
+function recipeBySlug(slug) {
+  const wanted = String(slug || "").toLowerCase();
+  return state.recipes.find((recipe) => recipeSlug(recipe) === wanted) || recipeById(slug);
+}
+
 function routeForCurrentView() {
   const { view } = currentAppView();
   if (view === "recipe-editor") {
     const id = document.getElementById("recipe-form").dataset.editingId;
-    return id ? `#recipes/${encodeURIComponent(id)}/edit` : "#recipes/new";
+    return id ? `#recipes/${recipeRouteSlug(id)}/edit` : "#recipes/new";
   }
-  if (view === "recipes" && openRecipeId) return `#recipes/${encodeURIComponent(openRecipeId)}`;
+  if (view === "recipes" && openRecipeId) return `#recipes/${recipeRouteSlug(openRecipeId)}`;
   return `#${viewSlugs[view] || "plan"}`;
 }
 
@@ -923,7 +964,7 @@ function applyRoute(hash) {
 
   if (view === "recipes") {
     if (id === "new") return showRecipeEditor();
-    const recipe = id ? recipeById(id) : null;
+    const recipe = id ? recipeBySlug(id) : null;
     if (recipe && action === "edit") return showRecipeEditor(recipe);
     openRecipeId = recipe ? recipe.id : null;
     return showRecipesView();
