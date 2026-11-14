@@ -253,6 +253,10 @@ let activePlannerId = null;
 let openRecipeId = null;
 // Recipe page filters: "Can make now" and one category at a time.
 let recipeCanMakeOnly = false;
+// Favorites belong to the signed-in person (users/{uid}.profile.favoriteRecipes),
+// not the household, so everyone keeps their own.
+let favoriteRecipeIds = new Set();
+let recipeFavoritesOnly = false;
 let recipeCategoryFilter = "";
 // Ingredients ticked off while cooking, per recipe. Kept for the session only.
 const recipeIngredientChecks = new Map();
@@ -518,6 +522,8 @@ async function handleAuthChange(user) {
   activePlannerId = null;
   hideNutritionPreference = false;
   personalNutrition = defaultPersonalNutrition();
+  favoriteRecipeIds = new Set();
+  recipeFavoritesOnly = false;
   applyNutritionVisibility();
   unsubscribeCloudState?.();
   unsubscribeCloudState = null;
@@ -610,8 +616,10 @@ async function applyStoredProfileLabel(user) {
   if (profile.displayName) authEls.accountEmail.textContent = profile.displayName;
   hideNutritionPreference = Boolean(profile.hideNutrition);
   personalNutrition = normalizePersonalNutrition(profile.nutrition);
+  favoriteRecipeIds = new Set(Array.isArray(profile.favoriteRecipes) ? profile.favoriteRecipes.map(String) : []);
   applyNutritionVisibility();
   renderMacros();
+  renderRecipes();
 }
 
 function applyNutritionVisibility() {
@@ -1442,6 +1450,7 @@ function renderRecipes() {
       });
     });
     setupIngredientMentions(detail);
+    bindFavoriteButtons(detail);
     updateDataControls();
     return;
   }
@@ -1454,12 +1463,17 @@ function renderRecipes() {
   const ready = new Set(searched.filter((recipe) => recipeStockCoverage(recipe).ready).map((recipe) => recipe.id));
   const recipes = searched
     .filter((recipe) => !recipeCanMakeOnly || ready.has(recipe.id))
+    .filter((recipe) => !recipeFavoritesOnly || isFavoriteRecipe(recipe.id))
     .filter((recipe) => !recipeCategoryFilter || recipe.category === recipeCategoryFilter)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   filters.innerHTML = recipeFilterMarkup(recipes.length);
   filters.querySelector("[data-can-make]").addEventListener("click", () => {
     recipeCanMakeOnly = !recipeCanMakeOnly;
+    renderRecipes();
+  });
+  filters.querySelector("[data-favorites-only]").addEventListener("click", () => {
+    recipeFavoritesOnly = !recipeFavoritesOnly;
     renderRecipes();
   });
   filters.querySelectorAll("[data-category-filter]").forEach((chip) => {
@@ -1472,11 +1486,14 @@ function renderRecipes() {
   catalogue.innerHTML = recipes.length
     ? groupRecipesByCategory(recipes).map(recipeCategorySection).join("")
     : `<p class="empty-state">${
-        recipeCanMakeOnly && !hasKitchenStock()
-          ? "Add what is in your kitchen on the Pantry page to see what you can make right now."
-          : "No recipes match."
+        recipeFavoritesOnly && !favoriteRecipeIds.size
+          ? "No favorites yet. Tap the heart on a recipe to save it here."
+          : recipeCanMakeOnly && !hasKitchenStock()
+            ? "Add what is in your kitchen on the Pantry page to see what you can make right now."
+            : "No recipes match."
       }</p>`;
   setupCloudImageDiagnostics(catalogue);
+  bindFavoriteButtons(catalogue);
   catalogue.querySelectorAll("[data-open-recipe]").forEach((button) => {
     button.addEventListener("click", () => {
       openRecipeId = button.dataset.openRecipe;
@@ -1501,11 +1518,12 @@ function recipeFilterMarkup(shown) {
   const noun = `recipe${shown === 1 ? "" : "s"}`;
   const label = recipeCanMakeOnly
     ? `Showing ${shown} ${noun} you have everything for`
-    : recipeCategoryFilter || document.getElementById("recipe-search").value.trim()
+    : recipeFavoritesOnly || recipeCategoryFilter || document.getElementById("recipe-search").value.trim()
       ? `Showing ${shown} ${noun}`
       : `Showing all ${shown} ${noun}`;
   return `
     <button class="filter-chip can-make-chip" type="button" data-can-make aria-pressed="${recipeCanMakeOnly}">${recipeCanMakeOnly ? "✓ " : ""}Can make now</button>
+    <button class="filter-chip favorites-chip" type="button" data-favorites-only aria-pressed="${recipeFavoritesOnly}">${heartIcon}Favorites</button>
     ${ordered
       .map(
         (category) =>
@@ -1548,13 +1566,17 @@ function recipeCategorySection(group) {
 
 function recipeCatalogueCard(recipe) {
   const coverage = recipeStockCoverage(recipe);
+  // The heart sits beside the card button, since a button cannot contain another.
   return `
-    <button class="recipe-catalogue-card${coverage.ready ? " is-ready" : ""}" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
-      ${recipeCatalogueVisual(recipe)}
-      ${unlinkedIngredientAlert(recipe)}
-      <strong class="recipe-catalogue-name">${escapeHtml(recipe.name)}</strong>
-      ${recipeStatusMarkup(recipe, coverage)}
-    </button>`;
+    <div class="recipe-catalogue-item">
+      <button class="recipe-catalogue-card${coverage.ready ? " is-ready" : ""}" data-open-recipe="${escapeHtml(recipe.id)}" type="button">
+        ${recipeCatalogueVisual(recipe)}
+        ${unlinkedIngredientAlert(recipe)}
+        <strong class="recipe-catalogue-name">${escapeHtml(recipe.name)}</strong>
+        ${recipeStatusMarkup(recipe, coverage)}
+      </button>
+      ${favoriteButtonMarkup(recipe)}
+    </div>`;
 }
 
 // The line under a recipe: what the kitchen covers once there is stock to compare
@@ -1631,6 +1653,7 @@ function recipeDetailMarkup(recipe) {
             <button class="secondary-button" data-cook-recipe type="button" title="Subtract these ingredients from your kitchen stock">I made this</button>
           </div>
           ${lastStockDeduction?.recipeId === recipe.id ? '<button class="text-button" data-undo-cook type="button">Undo</button>' : ""}
+          ${favoriteButtonMarkup(recipe, { withLabel: true })}
           <button class="text-button" data-edit-open-recipe type="button">Edit</button>
         </div>
       </div>
@@ -2580,6 +2603,49 @@ function nutritionSettings() {
     people: shared.people || plannerEaters(),
     peopleOverride: shared.people
   };
+}
+
+function isFavoriteRecipe(id) {
+  return favoriteRecipeIds.has(String(id));
+}
+
+const heartIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-9.2-8.6C1.3 8.4 3 5 6.4 5c2.1 0 3.6 1.2 4.6 2.7C12 6.2 13.5 5 15.6 5 19 5 20.7 8.4 19.2 11.4 17 15.6 12 20 12 20z"/></svg>';
+
+function favoriteButtonMarkup(recipe, { withLabel = false } = {}) {
+  const on = isFavoriteRecipe(recipe.id);
+  const label = on ? `Remove ${recipe.name} from your favorites` : `Add ${recipe.name} to your favorites`;
+  return `<button class="favorite-toggle${withLabel ? " secondary-button" : ""}" data-favorite-recipe="${escapeHtml(recipe.id)}" type="button"
+    aria-pressed="${on}" aria-label="${escapeHtml(label)}" title="${on ? "Favorited" : "Favorite"}">${heartIcon}${withLabel ? `<span>${on ? "Favorited" : "Favorite"}</span>` : ""}</button>`;
+}
+
+async function toggleFavoriteRecipe(id) {
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+  const key = String(id);
+  const next = new Set(favoriteRecipeIds);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  const previous = favoriteRecipeIds;
+  favoriteRecipeIds = next;
+  renderRecipes();
+  try {
+    // Only ids of recipes that still exist are kept, so deleted recipes drop out.
+    const ids = [...next].filter((recipeId) => recipeById(recipeId));
+    await cloud.setDoc(cloud.doc(cloud.db, "users", user.uid), { profile: { favoriteRecipes: ids } }, { merge: true });
+  } catch (error) {
+    favoriteRecipeIds = previous;
+    renderRecipes();
+    setAuthMessage("Could not save your favorite: " + error.message);
+  }
+}
+
+function bindFavoriteButtons(container) {
+  container.querySelectorAll("[data-favorite-recipe]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleFavoriteRecipe(button.dataset.favoriteRecipe);
+    });
+  });
 }
 
 async function savePersonalNutrition() {

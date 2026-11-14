@@ -8548,3 +8548,66 @@ input[type="checkbox"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
   color: transparent;
 }
+
+/* Favorites: a heart over each recipe card's photo, on the recipe page, and as a filter. */
+.recipe-catalogue-item {
+  display: grid;
+  min-width: 0;
+  position: relative;
+}
+
+.favorite-toggle {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.favorite-toggle svg,
+.favorites-chip svg {
+  fill: none;
+  height: 18px;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 18px;
+}
+
+.favorite-toggle[aria-pressed="true"] svg,
+.favorites-chip[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+.recipe-catalogue-item > .favorite-toggle {
+  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.18);
+  color: var(--muted);
+  height: 36px;
+  left: 10px;
+  padding: 0;
+  position: absolute;
+  top: 10px;
+  -webkit-backdrop-filter: blur(8px);
+  width: 36px;
+  z-index: 2;
+}
+
+.recipe-catalogue-item > .favorite-toggle:hover,
+.favorite-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.favorites-chip {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.favorites-chip svg {
+  height: 15px;
+  width: 15px;
+}
