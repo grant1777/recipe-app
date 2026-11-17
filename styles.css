@@ -7919,8 +7919,14 @@ input[type="checkbox"] {
     margin-top: 6px;
   }
 
+  /* "!" on the photo's top-right corner (the heart has the top-left): some of the
+     recipe's ingredients aren't in the ingredient list yet. */
   .recipe-catalogue .recipe-unlinked-alert {
-    display: none;
+    display: inline-flex;
+    height: 28px;
+    right: 10px;
+    top: 10px;
+    width: 28px;
   }
 
   .recipe-category-group {
@@ -8773,8 +8779,11 @@ input[type="checkbox"] {
   position: relative;
 }
 
+/* Height follows the text (set in bindStepIngredientTagger), so no handle or scrollbar. */
 .recipe-step-input-wrap textarea {
   display: block;
+  overflow-y: hidden;
+  resize: none;
 }
 
 .recipe-step-highlights {
@@ -9277,31 +9286,18 @@ input[type="checkbox"] {
 }
 
 /* ---- Editor rows: confirm before removing, hold before dragging ------------- */
-.row-remove {
-  position: relative;
+/* Removal asks in a centered alert dialog (confirmAction). */
+.confirm-dialog {
+  max-width: 340px;
 }
 
-.row-remove[data-confirm="true"] {
-  background: var(--danger-soft);
-  color: var(--danger-ink);
+.confirm-dialog .profile-hint {
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
 }
 
-/* "Remove?" pill beside the ×; it is part of the button, so tapping it confirms. */
-.row-remove[data-confirm="true"]::after {
-  background: var(--danger-soft);
-  border-radius: 999px;
-  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.16);
-  color: var(--danger-ink);
-  content: "Remove?";
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 6px 10px;
-  position: absolute;
-  right: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  z-index: 5;
+.confirm-dialog .profile-dialog-actions > button {
+  flex: 1;
 }
 
 /* Held on touch, waiting for the hold to complete. */
@@ -9420,4 +9416,240 @@ input[type="checkbox"] {
 
 .ingredient-save-button[hidden] {
   display: none;
+}
+
+/* ---- Icons (Lucide, the set shadcn/ui uses; see icons.js) --------------------
+   Inline icons come from icon(name) in icons.js. Icons drawn by CSS pseudo
+   elements use the same shapes as masks over currentColor, so they follow the
+   text colour in every theme. */
+:root {
+  --icon-check: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20%206%209%2017l-5-5%27%2F%3E%3C%2Fsvg%3E");
+  --icon-chevron-down: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27m6%209%206%206%206-6%27%2F%3E%3C%2Fsvg%3E");
+  --icon-chevron-right: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27m9%2018%206-6-6-6%27%2F%3E%3C%2Fsvg%3E");
+  --icon-pencil: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M21.174%206.812a1%201%200%200%200-3.986-3.987L3.842%2016.174a2%202%200%200%200-.5.83l-1.321%204.352a.5.5%200%200%200%20.623.622l4.353-1.32a2%202%200%200%200%20.83-.497z%27%2F%3E%3Cpath%20d%3D%27m15%205%204%204%27%2F%3E%3C%2Fsvg%3E");
+  --icon-x: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M18%206%206%2018%27%2F%3E%3Cpath%20d%3D%27m6%206%2012%2012%27%2F%3E%3C%2Fsvg%3E");
+}
+
+.icon {
+  display: inline-block;
+  flex: none;
+  height: 1em;
+  vertical-align: -0.125em;
+  width: 1em;
+}
+
+.row-remove .icon,
+.meal-picker-close .icon {
+  height: 16px;
+  width: 16px;
+}
+
+.drag-handle .icon {
+  fill: none;
+  height: 18px;
+  width: 18px;
+}
+
+.icon-button .icon {
+  height: 18px;
+  width: 18px;
+}
+
+.back-link .icon,
+.settings-back .icon {
+  height: 18px;
+  width: 18px;
+}
+
+.app-toast-icon .icon {
+  height: 14px;
+  stroke-width: 3;
+  width: 14px;
+}
+
+/* The alert icon brings its own circle, so the error badge drops its fill. */
+.app-toast[data-tone="error"] .app-toast-icon {
+  background: none;
+  color: var(--danger-soft);
+}
+
+.app-toast[data-tone="error"] .app-toast-icon .icon {
+  height: 22px;
+  stroke-width: 2;
+  width: 22px;
+}
+
+.theme-mode-check .icon,
+.meal-picker-check .icon {
+  height: 0.9em;
+  stroke-width: 3;
+  width: 0.9em;
+}
+
+/* Masked icons for pseudo-elements. */
+.pill-select::after,
+.ingredient-checklist input:checked + .check-box::after,
+.grocery-row-check input:checked + .check-box::after,
+.theme-swatch:has(input:checked) .theme-swatch-dot::after,
+.macro-details > summary::after,
+.macro-field-more > summary::after,
+.recipe-import-title::after {
+  background-color: currentColor;
+  content: "";
+  -webkit-mask: var(--icon-mask) center / contain no-repeat;
+  mask: var(--icon-mask) center / contain no-repeat;
+}
+
+.pill-select::after {
+  --icon-mask: var(--icon-chevron-down);
+  height: 14px;
+  width: 14px;
+}
+
+.ingredient-checklist input:checked + .check-box::after,
+.grocery-row-check input:checked + .check-box::after {
+  --icon-mask: var(--icon-check);
+  height: 15px;
+  width: 15px;
+}
+
+.theme-swatch:has(input:checked) .theme-swatch-dot::after {
+  --icon-mask: var(--icon-check);
+  height: 16px;
+  width: 16px;
+}
+
+.macro-details > summary::after,
+.macro-field-more > summary::after {
+  --icon-mask: var(--icon-chevron-down);
+  height: 12px;
+  vertical-align: -1px;
+  width: 12px;
+}
+
+.recipe-import-title::after {
+  --icon-mask: var(--icon-chevron-right);
+  align-self: center;
+  display: inline-block;
+  height: 16px;
+  width: 16px;
+}
+
+@media (max-width: 680px) {
+  .recipe-import > summary::after,
+  .settings-danger-zone::after {
+    background-color: currentColor;
+    content: "";
+    display: inline-block;
+    height: 18px;
+    -webkit-mask: var(--icon-chevron-right) center / contain no-repeat;
+    mask: var(--icon-chevron-right) center / contain no-repeat;
+    width: 18px;
+  }
+
+  /* Recipe editor thumbnail: pencil badge (circle on ::before, icon on ::after). */
+  .recipe-editor-form .recipe-photo-button::before {
+    background: var(--card);
+    border-radius: 999px;
+    bottom: 6px;
+    box-shadow: 0 2px 6px rgba(45, 40, 64, 0.22);
+    content: "";
+    height: 28px;
+    position: absolute;
+    right: 6px;
+    width: 28px;
+  }
+
+  .recipe-editor-form .recipe-photo-button::after {
+    background: var(--accent);
+    bottom: 13px;
+    box-shadow: none;
+    content: "";
+    height: 14px;
+    -webkit-mask: var(--icon-pencil) center / contain no-repeat;
+    mask: var(--icon-pencil) center / contain no-repeat;
+    right: 13px;
+    width: 14px;
+  }
+
+  .recipe-editor-form #remove-recipe-photo:not([hidden])::before {
+    background-color: currentColor;
+    content: "";
+    height: 14px;
+    -webkit-mask: var(--icon-x) center / contain no-repeat;
+    mask: var(--icon-x) center / contain no-repeat;
+    width: 14px;
+  }
+}
+
+/* ---- Recipes list (phones): tighter vertical rhythm --------------------------- */
+@media (max-width: 680px) {
+  #recipes-view:not(.is-reading) {
+    gap: 14px;
+  }
+
+  #recipes-view .recipes-header {
+    gap: 12px;
+  }
+
+  #recipes-view .recipe-search input {
+    height: 42px;
+  }
+
+  #recipes-view .recipe-filters {
+    gap: 6px;
+    margin-top: 0;
+  }
+
+  #recipes-view .recipe-filters .filter-chip {
+    font-size: 0.84rem;
+    padding: 6px 13px;
+  }
+
+  #recipes-view .recipe-category-group {
+    gap: 10px;
+    padding: 12px 0 16px;
+  }
+
+  #recipes-view .recipe-category-heading h3 {
+    font-size: 1.4rem;
+  }
+
+  #recipes-view .recipe-category-grid {
+    gap: 16px 12px;
+  }
+
+  /* Long imported titles stop at three lines instead of pushing the row down. */
+  #recipes-view .recipe-catalogue-name {
+    -webkit-box-orient: vertical;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+}
+
+/* Lucide icons inside small round controls. */
+.stepper-button .icon,
+.tab-action .icon,
+#open-recipe-editor .phone-label .icon {
+  height: 18px;
+  width: 18px;
+}
+
+#open-recipe-editor .phone-label {
+  align-items: center;
+  justify-content: center;
+}
+
+.add-link .icon {
+  height: 0.95em;
+  stroke-width: 2.5;
+  width: 0.95em;
+}
+
+@media (max-width: 680px) {
+  #open-recipe-editor {
+    padding: 0;
+  }
 }

@@ -4,7 +4,7 @@ A static recipe and meal planning app that can run from GitHub Pages.
 
 ## Local use
 
-Run the app through a local web server, such as `python -m http.server 8000`, then open `http://localhost:8000`. Firebase authentication redirects do not work when `index.html` is opened as a `file://` URL.
+Run `npm start`, then open `http://127.0.0.1:8000`. Pages have their own addresses (`/recipes`, `/ingredients`, …); the dev server, `404.html` (GitHub Pages) and the `firebase.json` rewrite all serve `index.html` for them. Firebase authentication redirects do not work when `index.html` is opened as a `file://` URL.
 
 ## GitHub Pages
 

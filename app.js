@@ -390,7 +390,9 @@ function normalizeIngredientCatalog(value) {
           ...nutrientValues(item),
           servingsPerContainer: servingsPerContainer(item),
           containerUnit: containerUnit(item),
-          url: item.url || walmartSearchUrl(name),
+          // Optional: no link stays empty, and the grocery list falls back to a
+          // Walmart search for the name (a filled-in search URL would read as "linked").
+          url: typeof item.url === "string" ? item.url.trim() : "",
           image: safeImageUrl(item.image),
           imagePath: typeof item.imagePath === "string" ? item.imagePath : ""
         }
@@ -932,8 +934,21 @@ function activateAppView(viewName, activeTab = viewName) {
 }
 
 // ---- Page addresses -------------------------------------------------------
-// Each page has its own #address (#recipes, #pantry, #recipes/<id>/edit...) so a
-// refresh, a bookmark or the back button lands on the same page.
+// Each page has its own path (/recipes, /pantry, /recipes/<name>/edit...) so a
+// refresh, a bookmark or the back button lands on the same page. Every path is
+// served index.html: 404.html on GitHub Pages, a rewrite on Firebase Hosting,
+// serve.js locally. The head script in index.html sets window.appBasePath.
+const appBasePath = window.appBasePath || "/";
+const legacyHashRoute = /^#\/?(plan|recipes|groceries|pantry|ingredients|nutrition|settings)(\/|$)/;
+
+// The route part of the address: "recipes/pumpkin-bread/edit", or "" for the
+// start page. Old #recipes links are still understood.
+function currentRoutePath() {
+  if (legacyHashRoute.test(window.location.hash)) return window.location.hash.replace(/^#\/?/, "");
+  const path = window.location.pathname;
+  const rest = path.startsWith(appBasePath) ? path.slice(appBasePath.length) : path.replace(/^\/+/, "");
+  return rest.replace(/^index\.html$/, "").replace(/\/+$/, "");
+}
 const viewSlugs = {
   planner: "plan",
   recipes: "recipes",
@@ -945,8 +960,8 @@ const viewSlugs = {
 };
 // The address the page was opened with, applied once household data has loaded
 // (recipes and settings need it). Until then the URL is left alone.
-let pendingRoute = window.location.hash;
-let lastRouteHash = window.location.hash;
+let pendingRoute = currentRoutePath();
+let lastRoute = currentRoutePath();
 let routeSyncQueued = false;
 
 // "Pumpkin Snickerdoodles" -> "pumpkin-snickerdoodles". Accents are folded and
@@ -984,10 +999,10 @@ function routeForCurrentView() {
   const { view } = currentAppView();
   if (view === "recipe-editor") {
     const id = document.getElementById("recipe-form").dataset.editingId;
-    return id ? `#recipes/${recipeRouteSlug(id)}/edit` : "#recipes/new";
+    return id ? `recipes/${recipeRouteSlug(id)}/edit` : "recipes/new";
   }
-  if (view === "recipes" && openRecipeId) return `#recipes/${recipeRouteSlug(openRecipeId)}`;
-  return `#${viewSlugs[view] || "plan"}`;
+  if (view === "recipes" && openRecipeId) return `recipes/${recipeRouteSlug(openRecipeId)}`;
+  return viewSlugs[view] || "plan";
 }
 
 // Deferred a tick so multi-step navigation (open the editor, then fill it with a
@@ -997,14 +1012,17 @@ function syncRoute() {
   routeSyncQueued = true;
   queueMicrotask(() => {
     routeSyncQueued = false;
-    const hash = routeForCurrentView();
-    lastRouteHash = hash;
-    if (hash !== window.location.hash) history.pushState(null, "", hash);
+    const route = routeForCurrentView();
+    lastRoute = route;
+    const url = `${appBasePath}${route}`;
+    // An old #address is swapped for its path rather than added to history.
+    if (legacyHashRoute.test(window.location.hash)) history.replaceState(null, "", url);
+    else if (url !== window.location.pathname) history.pushState(null, "", url);
   });
 }
 
-function applyRoute(hash) {
-  const [slug = "", id = "", action = ""] = String(hash || "").replace(/^#\/?/, "").split("/").map((part) => {
+function applyRoute(route) {
+  const [slug = "", id = "", action = ""] = String(route || "").replace(/^[#/]+/, "").split("/").map((part) => {
     try {
       return decodeURIComponent(part);
     } catch (error) {
@@ -1027,17 +1045,18 @@ function applyRoute(hash) {
 
 function applyPendingRoute() {
   if (pendingRoute === null) return;
-  const hash = pendingRoute;
+  const route = pendingRoute;
   pendingRoute = null;
-  applyRoute(hash);
+  applyRoute(route);
   syncRoute();
 }
 
 function setupRouting() {
   const follow = () => {
-    if (pendingRoute !== null || window.location.hash === lastRouteHash) return;
-    lastRouteHash = window.location.hash;
-    applyRoute(window.location.hash);
+    const route = currentRoutePath();
+    if (pendingRoute !== null || route === lastRoute) return;
+    lastRoute = route;
+    applyRoute(route);
   };
   window.addEventListener("popstate", follow);
   window.addEventListener("hashchange", follow);
@@ -1141,7 +1160,7 @@ function openMealPicker(trigger) {
     .filter((option) => option.value || current)
     .map((option) => {
       const value = option.value;
-      if (!value) return { value, label: "Clear this meal", meta: "", thumb: '<span class="meal-slot-thumb" aria-hidden="true">×</span>' };
+      if (!value) return { value, label: "Clear this meal", meta: "", thumb: `<span class="meal-slot-thumb" aria-hidden="true">${icon("x")}</span>` };
       if (value === TAKEOUT_PREFIX) {
         return { value, label: "Takeout", meta: "Eating out", thumb: '<span class="meal-slot-thumb" aria-hidden="true">🥡</span>' };
       }
@@ -1163,7 +1182,7 @@ function openMealPicker(trigger) {
   element.innerHTML = `
     <div class="meal-picker-head">
       <strong>${escapeHtml(`${day} · ${meal}`)}</strong>
-      <button class="meal-picker-close" type="button" aria-label="Close">×</button>
+      <button class="meal-picker-close" type="button" aria-label="Close">${icon("x")}</button>
     </div>
     <input class="meal-picker-search" type="search" placeholder="Search recipes" aria-label="Search recipes" autocomplete="off" />
     <ul class="meal-picker-list" role="listbox" aria-label="Recipes">
@@ -1175,7 +1194,7 @@ function openMealPicker(trigger) {
             <span class="meal-picker-name">${escapeHtml(item.label)}</span>
             ${item.meta ? `<span class="meal-picker-meta">${escapeHtml(item.meta)}</span>` : ""}
           </span>
-          ${item.value && item.value === selectedValue ? '<span class="meal-picker-check" aria-hidden="true">✓</span>' : ""}
+          ${item.value && item.value === selectedValue ? `<span class="meal-picker-check" aria-hidden="true">${icon("check")}</span>` : ""}
         </li>`).join("")}
     </ul>
     <p class="meal-picker-empty" hidden>No recipes match.</p>`;
@@ -1303,7 +1322,7 @@ function mealSlotMarkup(day, meal, value, isToday = false) {
           <span class="meal-slot-value">${filled ? escapeHtml(summary.label) : emptyLabel}</span>
           ${filled && summary.note ? `<span class="meal-slot-meta">${escapeHtml(summary.note)}</span>` : ""}
         </span>
-        <span class="meal-slot-chevron" aria-hidden="true">▾</span>
+        <span class="meal-slot-chevron" aria-hidden="true">${icon("chevron-down")}</span>
         <select class="meal-slot-select" id="${day}-${meal}" aria-hidden="true" tabindex="-1" data-day="${day}" data-meal="${meal}">
           ${recipeOptions(value)}
         </select>
@@ -1766,7 +1785,7 @@ function recipeFilterMarkup(shown) {
       ? `Showing ${shown} ${noun}`
       : `Showing all ${shown} ${noun}`;
   return `
-    <button class="filter-chip can-make-chip" type="button" data-can-make aria-pressed="${recipeCanMakeOnly}">${recipeCanMakeOnly ? "✓ " : ""}Can make now</button>
+    <button class="filter-chip can-make-chip" type="button" data-can-make aria-pressed="${recipeCanMakeOnly}">${recipeCanMakeOnly ? `${icon("check")} ` : ""}Can make now</button>
     <button class="filter-chip favorites-chip" type="button" data-favorites-only aria-pressed="${recipeFavoritesOnly}">${heartIcon}Favorites</button>
     ${ordered
       .map(
@@ -1827,7 +1846,7 @@ function recipeCatalogueCard(recipe) {
 // against, and the recipe's size before that.
 function recipeStatusMarkup(recipe, coverage = recipeStockCoverage(recipe)) {
   if (coverage.total && hasKitchenStock()) {
-    if (coverage.ready) return '<span class="recipe-status is-ready">✓ Can make now</span>';
+    if (coverage.ready) return `<span class="recipe-status is-ready">${icon("check")} Can make now</span>`;
     return `<span class="recipe-status">${coverage.have} of ${coverage.total} in stock</span>`;
   }
   return `<span class="recipe-status">${recipe.ingredients?.length || 0} ingredients · Serves ${formatQuantity(Number(recipe.servings || 1))}</span>`;
@@ -1851,7 +1870,7 @@ function unlinkedIngredientAlert(recipe) {
 // stamp "0 of 5" on every recipe you own.
 function stockCoverageBadge(coverage) {
   if (!coverage.total || !hasKitchenStock()) return "";
-  if (coverage.ready) return '<span class="stock-pill is-ready">✓ Can make now</span>';
+  if (coverage.ready) return `<span class="stock-pill is-ready">${icon("check")} Can make now</span>`;
   if (!coverage.have) return "";
   return `<span class="stock-pill">${coverage.have} of ${coverage.total} in stock</span>`;
 }
@@ -1937,12 +1956,12 @@ function recipeDetailMarkup(savedRecipe) {
   const showStockFlags = coverage.total > 0 && hasKitchenStock();
   const stockLine = showStockFlags
     ? coverage.ready
-      ? '<p class="recipe-hero-stock is-ready">✓ Everything is in your kitchen</p>'
+      ? `<p class="recipe-hero-stock is-ready">${icon("check")} Everything is in your kitchen</p>`
       : `<p class="recipe-hero-stock">${coverage.have} of ${coverage.total} ingredients in your kitchen</p>`
     : "";
 
   return `
-    <button class="back-link" data-back-to-recipes type="button"><span aria-hidden="true">←</span> <span class="back-link-label">All recipes</span></button>
+    <button class="back-link" data-back-to-recipes type="button">${icon("arrow-left")} <span class="back-link-label">All recipes</span></button>
     <div class="recipe-hero">
       <div class="recipe-hero-photo">
         ${image ? `<img class="recipe-detail-image" src="${escapeHtml(image)}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
@@ -1952,7 +1971,7 @@ function recipeDetailMarkup(savedRecipe) {
           <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}${scale === 1 ? "" : ` · ${escapeHtml(recipeScaleOptions.find((option) => option.value === scale)?.label || `${scale}×`)} recipe`}</p>
           <div class="recipe-hero-icons">
             ${favoriteButtonMarkup(recipe)}
-            <button class="recipe-hero-icon-button" data-edit-open-recipe type="button" aria-label="Edit recipe" title="Edit recipe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg></button>
+            <button class="recipe-hero-icon-button" data-edit-open-recipe type="button" aria-label="Edit recipe" title="Edit recipe">${icon("pencil")}</button>
           </div>
         </div>
         <h2>${escapeHtml(recipe.name)}</h2>
@@ -2932,7 +2951,7 @@ function isFavoriteRecipe(id) {
   return favoriteRecipeIds.has(String(id));
 }
 
-const heartIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-9.2-8.6C1.3 8.4 3 5 6.4 5c2.1 0 3.6 1.2 4.6 2.7C12 6.2 13.5 5 15.6 5 19 5 20.7 8.4 19.2 11.4 17 15.6 12 20 12 20z"/></svg>';
+const heartIcon = icon("heart");
 
 function favoriteButtonMarkup(recipe, { withLabel = false } = {}) {
   const on = isFavoriteRecipe(recipe.id);
@@ -3627,7 +3646,7 @@ function renderCookRecipeList() {
     .map((recipe) => {
       // Same coverage figure the recipe cards show, so the two never disagree.
       const coverage = recipeStockCoverage(recipe);
-      const label = coverage.total ? (coverage.ready ? "✓ Can make now" : `${coverage.have} of ${coverage.total} in stock`) : "No amounts set";
+      const label = coverage.total ? (coverage.ready ? `${icon("check")} Can make now` : `${coverage.have} of ${coverage.total} in stock`) : "No amounts set";
       return `
         <button class="cook-recipe${coverage.ready ? " is-ready" : ""}" data-cook-id="${escapeHtml(recipe.id)}" type="button">
           <span class="cook-recipe-body">
@@ -4672,13 +4691,18 @@ function addRecipeStepRow(value = "") {
         <span class="recipe-step-tag-hint"></span>
       </span>
     </div>
-    <button class="row-remove" type="button" aria-label="Remove step" title="Remove">×</button>`;
+    <button class="row-remove" type="button" aria-label="Remove step" title="Remove">${icon("x")}</button>`;
 
   stepEditorTags.set(row.querySelector(".recipe-step-input"), tags);
   bindStepIngredientTagger(row);
 
   bindConfirmRemove(row.querySelector(".row-remove"), {
     isEmpty: () => !row.querySelector(".recipe-step-input").value.trim(),
+    title: "Remove this step?",
+    message: () => {
+      const text = row.querySelector(".recipe-step-input").value.trim();
+      return text.length > 90 ? `“${text.slice(0, 90).trim()}…”` : `“${text}”`;
+    },
     onRemove: () => {
       row.remove();
       if (!container.children.length) addRecipeStepRow();
@@ -4767,6 +4791,14 @@ function bindStepIngredientTagger(row) {
   // labelled words wrapped in <mark>, so the tint lands behind the right words.
   const renderHighlights = () => {
     const style = getComputedStyle(textarea);
+    // Grow the box to fit its text so a step never hides behind a scrollbar.
+    // Skipped while hidden (no width to measure); the ResizeObserver below
+    // re-runs this once the editor shows.
+    if (textarea.offsetWidth) {
+      textarea.style.height = "auto";
+      const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      textarea.style.height = `${textarea.scrollHeight + borders}px`;
+    }
     [
       "boxSizing", "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing",
       "wordSpacing", "textIndent", "textTransform", "tabSize", "paddingTop", "paddingRight",
@@ -5284,29 +5316,35 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
 
 // Pointer-based row reordering: works with mouse and touch, and with the
 // keyboard through the handle's arrow keys.
-// × on an editor row asks first: one tap arms it ("Remove?"), a second tap within
-// a few seconds removes. Blank rows go straight away - nothing to lose.
-function bindConfirmRemove(button, { isEmpty = () => false, onRemove }) {
-  let timer = null;
-  const disarm = () => {
-    clearTimeout(timer);
-    delete button.dataset.confirm;
-    button.setAttribute("aria-label", button.dataset.label);
-  };
-  button.dataset.label = button.getAttribute("aria-label") || "Remove";
-  button.addEventListener("click", () => {
-    if (button.dataset.confirm === "true" || isEmpty()) {
-      disarm();
-      onRemove();
-      return;
-    }
-    button.dataset.confirm = "true";
-    button.setAttribute("aria-label", `${button.dataset.label}? Press again to confirm`);
-    timer = setTimeout(disarm, 3500);
+// Centered alert dialog (shadcn's Alert Dialog pattern). Resolves true only when
+// the user picks the confirm button; Escape and Cancel resolve false. Cancel gets
+// focus first so a stray Enter never destroys anything.
+function confirmAction({ title = "Remove?", message = "", confirmLabel = "Remove" } = {}) {
+  const dialog = document.querySelector("#confirm-dialog");
+  if (!dialog?.showModal) return Promise.resolve(window.confirm(message || title));
+  dialog.querySelector("#confirm-dialog-title").textContent = title;
+  const messageEl = dialog.querySelector("#confirm-dialog-message");
+  messageEl.textContent = message;
+  messageEl.hidden = !message;
+  dialog.querySelector("#confirm-dialog-ok").textContent = confirmLabel;
+  const opener = document.activeElement;
+  return new Promise((resolve) => {
+    dialog.returnValue = "";
+    dialog.addEventListener("close", () => {
+      if (opener?.isConnected) opener.focus();
+      resolve(dialog.returnValue === "confirm");
+    }, { once: true });
+    dialog.showModal();
+    dialog.querySelector("#confirm-dialog-cancel").focus();
   });
-  button.addEventListener("blur", () => setTimeout(() => {
-    if (document.activeElement !== button) disarm();
-  }, 150));
+}
+
+// × on an editor row asks first in a centered dialog. Blank rows go straight
+// away - nothing to lose.
+function bindConfirmRemove(button, { isEmpty = () => false, onRemove, title, message = () => "" }) {
+  button.addEventListener("click", async () => {
+    if (isEmpty() || await confirmAction({ title, message: message() })) onRemove();
+  });
 }
 
 function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder = () => {} }) {
@@ -5415,7 +5453,7 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
 
 function dragHandleMarkup(label, className = "drag-handle") {
   return `<button class="${className}" type="button" aria-label="${escapeHtml(label)}" title="Press and hold to reorder, or use the arrow keys">
-      <svg viewBox="0 0 10 16" aria-hidden="true" focusable="false"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>
+      ${icon("grip-vertical")}
     </button>`;
 }
 
@@ -5443,7 +5481,7 @@ function addRecipeIngredientRow(item = {}) {
       <span class="ingredient-flag" title="Not in your ingredient index" aria-hidden="true">!</span>
       <div class="ingredient-picker-results" role="listbox" hidden></div>
     </div>
-    <button class="row-remove" type="button" aria-label="Remove ingredient" title="Remove">×</button>
+    <button class="row-remove" type="button" aria-label="Remove ingredient" title="Remove">${icon("x")}</button>
     <p class="recipe-ingredient-serving"></p>`;
 
   const search = row.querySelector(".recipe-ingredient-search");
@@ -5474,6 +5512,8 @@ function addRecipeIngredientRow(item = {}) {
   });
   bindConfirmRemove(row.querySelector(".row-remove"), {
     isEmpty: () => !search.value.trim(),
+    title: "Remove ingredient?",
+    message: () => `${search.value.trim()} will be taken out of this recipe.`,
     onRemove: () => {
       row.remove();
       if (!container.children.length) addRecipeIngredientRow();
@@ -7122,7 +7162,7 @@ function showToast(message, { tone = "success" } = {}) {
     document.body.appendChild(toast);
   }
   toast.dataset.tone = tone;
-  toast.innerHTML = `<span class="app-toast-icon" aria-hidden="true">${tone === "error" ? "!" : "✓"}</span><span>${escapeHtml(message)}</span>`;
+  toast.innerHTML = `<span class="app-toast-icon" aria-hidden="true">${icon(tone === "error" ? "circle-alert" : "check")}</span><span>${escapeHtml(message)}</span>`;
   // Restart the entrance even when a toast is already showing.
   toast.classList.remove("is-visible");
   void toast.offsetWidth;

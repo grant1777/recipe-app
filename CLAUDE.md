@@ -13,7 +13,7 @@ so treat mobile layout as the primary target and desktop as secondary.
   SDK is loaded at runtime from `gstatic.com` via dynamic `import()` in `app.js`.
 - There are no Cloud Functions, so the browser cannot fetch other sites (CORS).
   For example, Walmart product pages can't be scraped client-side.
-- Run locally with `python -m http.server 8000`. Auth redirects fail on `file://`.
+- Run locally with `npm start` (`serve.js`, no dependencies) → http://127.0.0.1:8000. It serves `index.html` for any app path. Auth redirects fail on `file://`.
 - Tests: `npm test` (Node's built-in runner; it covers only `receipt-import.js`).
   Quick syntax check after JS edits: `node --check app.js`.
 
@@ -24,6 +24,7 @@ so treat mobile layout as the primary target and desktop as secondary.
 | `index.html` | All markup. Every page is a `<section class="view" id="<name>-view">`, and only `.view.active` shows. Also holds dialogs, the tab bar and an inline pre-paint theme script. |
 | `app.js` (~7k lines) | All app logic in one file of global functions. Find code with Grep; don't read it top to bottom. |
 | `styles.css` (~9k lines) | All styles. Later rules intentionally override earlier ones. Mobile overrides live in `@media (max-width: 680px)` blocks, and several of those blocks exist. |
+| `icons.js` | Lucide icon registry (the icon set shadcn/ui uses) plus `icon(name)`, which returns inline `<svg>` markup. Loaded before `app.js`. |
 | `receipt-import.js` | Walmart receipt parser (pure functions, tested). |
 | `firestore.rules`, `storage.rules` | Access rules: an approved-user gate plus household membership. |
 | `firebase-config.js` | Public web config. |
@@ -37,9 +38,15 @@ version string when shipping CSS or JS changes, or phones may keep stale files.
 
 Plan · Recipes (list → recipe page → editor) · Groceries · Pantry (`kitchen-stock`)
 · Ingredients (the ingredient index) · Nutrition (`macros`, hidden when the user
-turns nutrition off) · Settings (opened from the avatar). Each page has a hash
-route (`#recipes`, `#pantry`, `#recipes/<id>/edit`, …) handled by `syncRoute` and
-the `viewSlugs` map. Tab clicks go through `openTabHome(tab)`. Clicking the
+turns nutrition off) · Settings (opened from the avatar). Each page has a real
+path (`/recipes`, `/pantry`, `/recipes/<name>/edit`, …) handled by `syncRoute`,
+`applyRoute`, `currentRoutePath` and the `viewSlugs` map. It's still one page:
+every path serves `index.html` (`404.html` on GitHub Pages, a rewrite in
+`firebase.json` for Firebase Hosting, `serve.js` locally). A head script in
+`index.html` sets `<base>` and `window.appBasePath` (`/` or `/recipe-app/`), so
+asset URLs stay relative. Old `#recipes` links are converted on load. A new
+top-level page needs its slug added to the route lists in the `index.html` head
+script, in `404.html` and in `viewSlugs`. Tab clicks go through `openTabHome(tab)`. Clicking the
 Ingredients tab resets the ingredient form.
 
 ## Data model and saving
@@ -64,13 +71,15 @@ Ingredients tab resets the ingredient form.
   afterwards. **Escape every interpolated value with `escapeHtml()`.**
 - Reuse the existing helpers:
   - `showToast(msg, { tone: "error" })` for notifications.
-  - `bindConfirmRemove(button, { isEmpty, onRemove })` for "Remove?" confirmation
-    (two taps).
+  - `bindConfirmRemove(button, { isEmpty, onRemove, title, message })` for a
+    "Remove?" confirmation, or `await confirmAction({ title, message, confirmLabel })`
+    directly. Both show the centered `#confirm-dialog`.
   - `makeRowsSortable(container, …)` for drag reordering (touch needs a short hold).
   - `optionMarkup` for `<select>` options.
   - `formatQuantity` and `parseFractionInput` for amounts.
 - Wrap `localStorage` in try/catch. It holds only per-device preferences (theme
   mode, colour theme).
+- **Icons are Lucide only.** Use `${icon("name")}` in templates. In CSS pseudo-elements, mask a `--icon-*` variable over `currentColor` (see the Icons section at the end of `styles.css`). To add an icon, copy its inner markup from `lucide-static` into `icons.js` (and add a `--icon-*` variable if CSS needs it). Never hand-draw SVGs or use text glyphs (← › ▾ × ✓) as icons.
 - Prefer `<details>`/`<summary>` for collapsible sections. Long optional sections
   start closed.
 - HTML `pattern` attributes are compiled with the regex `v` flag, so escape `/`,

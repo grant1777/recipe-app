@@ -4,5 +4,25 @@
   },
   "storage": {
     "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "tests/**",
+      "ds-bundle/**",
+      "serve.js",
+      "*.md",
+      "package*.json",
+      "*.rules"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
   }
 }

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Household Recipe Planner</title>
+    <script>
+      // GitHub Pages serves this file for any path it has no file for, such as
+      // /recipe-app/recipes/pumpkin-bread. App pages are bounced to the app with
+      // the path in ?route=...; the head script in index.html puts it back.
+      (function () {
+        var routes = ["plan", "recipes", "groceries", "pantry", "ingredients", "nutrition", "settings"];
+        var parts = location.pathname.split("/");
+        var at = parts.findIndex(function (part) { return routes.indexOf(part) !== -1; });
+        if (at < 1) return;
+        var base = parts.slice(0, at).join("/") + "/";
+        var route = parts.slice(at).join("/");
+        var query = location.search ? "&" + location.search.slice(1) : "";
+        location.replace(base + "?route=" + encodeURIComponent(route) + query + location.hash);
+      })();
+    </script>
+    <style>
+      body { background: #f7f4fc; color: #2d2840; font-family: system-ui, sans-serif; margin: 0; padding: 48px 20px; text-align: center; }
+      a { color: #a8466a; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <p>That page doesn't exist.</p>
+    <p><a href="./">Go to the recipe planner</a></p>
+  </body>
+</html>
