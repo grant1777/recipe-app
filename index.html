@@ -49,7 +49,7 @@
         <div class="setup-divider"><span>or</span></div>
         <form id="join-household-form">
           <label for="household-invite">Household invite code</label>
-          <input id="household-invite" autocomplete="off" required placeholder="Paste the invite code" />
+          <input id="household-invite" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="ABCD-1234" />
           <button class="light-button full-button" type="submit">Join household</button>
         </form>
         <button class="text-button" id="setup-sign-out" type="button">Sign out</button>
@@ -202,7 +202,7 @@
                     <span class="section-toggle-chevron" aria-hidden="true">▾</span>
                     <span>Ingredients</span>
                   </button>
-                  <span class="section-hint">Drag <span aria-hidden="true">⠿</span> to reorder</span>
+                  <span class="section-hint">Hold <span aria-hidden="true">⠿</span> to reorder</span>
                   <button class="add-link" id="add-recipe-ingredient" type="button" aria-label="Add ingredient">+ Add<span class="wide-label"> ingredient</span></button>
                 </div>
                 <div class="recipe-form-section-body" id="recipe-ingredients-body">
@@ -234,11 +234,10 @@
                   <label class="secondary-button recipe-photo-button" for="recipe-photo">Change photo</label>
                   <input id="recipe-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
                   <button class="text-button" id="remove-recipe-photo" type="button" hidden>Remove</button>
-                  <span class="recipe-photo-limit">Optional · max 2 MB</span>
                 </div>
                 <div class="photo-link-row">
                   <label class="visually-hidden" for="recipe-photo-url">Image link</label>
-                  <input id="recipe-photo-url" type="url" inputmode="url" autocomplete="off" placeholder="Or paste an image link" />
+                  <input id="recipe-photo-url" type="url" inputmode="url" autocomplete="off" placeholder="Paste image link" />
                   <button class="secondary-button" id="recipe-photo-url-button" type="button">Use link</button>
                 </div>
                 <p class="recipe-photo-hint" id="recipe-photo-message"></p>
@@ -324,9 +323,13 @@
                 <input id="ingredient-name" required placeholder="Chicken breast" />
               </label>
               <label>
+                Category
+                <select id="ingredient-category"></select>
+              </label>
+              <label>
                 Serving size
                 <div class="serving-size-inputs">
-                  <input id="ingredient-serving-amount" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="1 1/2" value="1" />
+                  <input id="ingredient-serving-amount" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="1 1/2" value="1" />
                   <select id="ingredient-serving-unit"></select>
                 </div>
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
@@ -337,7 +340,7 @@
               </label>
               <label>
                 Servings per <span id="ingredient-container-unit-label">container</span>
-                <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
+                <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
               </label>
               <label>
                 Walmart product URL
@@ -349,7 +352,7 @@
               <div class="recipe-photo-preview" id="ingredient-photo-preview" data-empty="true" aria-hidden="true"></div>
               <div class="recipe-photo-controls">
                 <strong>Photo</strong>
-                <p class="recipe-photo-hint" id="ingredient-photo-message">Optional. Maximum file size: 2 MB.</p>
+                <p class="recipe-photo-hint" id="ingredient-photo-message"></p>
                 <div class="recipe-photo-buttons">
                   <label class="secondary-button recipe-photo-button" for="ingredient-photo">Choose image</label>
                   <input id="ingredient-photo" type="file" accept="image/*,.webp,.avif,.jpg,.jpeg,.png,.gif,.heic" />
@@ -363,12 +366,12 @@
               </div>
             </div>
 
-            <fieldset class="macro-fieldset nutrition-only">
-              <legend>Nutrition <span>per serving</span></legend>
+            <details class="macro-fieldset macro-details nutrition-only" id="ingredient-nutrition">
+              <summary>Nutrition <span>per serving</span></summary>
               <div class="macro-field-groups" id="ingredient-nutrients"></div>
-            </fieldset>
+            </details>
 
-            <button class="primary-button" type="submit">Save ingredient</button>
+            <button class="primary-button ingredient-save-button" id="save-ingredient" type="submit">Save ingredient</button>
           </form>
 
           <div class="mapping-tools">
@@ -376,7 +379,12 @@
               <p class="eyebrow">Saved</p>
               <h3>Searchable ingredients</h3>
             </div>
-            <div class="mapping-list" id="ingredient-list"></div>
+            <label class="ingredient-search" for="ingredient-search">
+              <span class="visually-hidden">Search ingredients</span>
+              <input id="ingredient-search" type="search" placeholder="Search ingredients" autocomplete="off" />
+            </label>
+            <div class="recipe-filters ingredient-filters" id="ingredient-filters"></div>
+            <div class="ingredient-groups" id="ingredient-list"></div>
           </div>
         </section>
 
@@ -425,7 +433,7 @@
               <label>
                 Amount
                 <div class="serving-size-inputs">
-                  <input id="kitchen-stock-quantity" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="12" value="1" />
+                  <input id="kitchen-stock-quantity" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="12" value="1" />
                   <select id="kitchen-stock-unit"></select>
                 </div>
               </label>

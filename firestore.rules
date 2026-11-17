@@ -56,6 +56,22 @@ service cloud.firestore {
       allow delete: if signedIn() && (isAccessAdmin() || request.auth.uid == userId);
     }
 
+    // Short invite codes (XXXX-XXXX) -> household id. A code can be looked up
+    // only by knowing it (get, never list). Joining still requires the code to
+    // equal the household's inviteToken, checked in members/create below.
+    match /invites/{code} {
+      allow get: if approvedUser();
+
+      allow create: if approvedUser()
+        && code.matches('^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$')
+        && request.resource.data.keys().hasOnly(['householdId', 'createdBy'])
+        && request.resource.data.createdBy == request.auth.uid
+        && householdDoc(request.resource.data.householdId).data.ownerUid == request.auth.uid;
+
+      allow delete: if approvedUser()
+        && householdDoc(resource.data.householdId).data.ownerUid == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read, create, update: if approvedUser() && request.auth.uid == userId;
     }
@@ -67,9 +83,13 @@ service cloud.firestore {
 
       allow read: if isHouseholdMember(householdId);
 
+      // Only the owner may change the invite token (switching to a short code).
       allow update: if isHouseholdMember(householdId)
         && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.inviteToken == resource.data.inviteToken;
+        && (
+          request.resource.data.inviteToken == resource.data.inviteToken
+          || resource.data.ownerUid == request.auth.uid
+        );
 
       allow delete: if approvedUser() && resource.data.ownerUid == request.auth.uid;
 

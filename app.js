@@ -7,7 +7,10 @@ const INGREDIENT_PHOTO_MAX_WIDTH = 480;
 const PHOTO_DECODE_TIMEOUT = 20000;
 const PHOTO_UPLOAD_TIMEOUT = 60000;
 const PHOTO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
-const OPTIONAL_PHOTO_MESSAGE = "Optional. Maximum file size: 2 MB.";
+// No standing "optional / max size" hint: the limit is only mentioned, as a
+// notification, when someone actually picks an image that is too big.
+const OPTIONAL_PHOTO_MESSAGE = "";
+const PHOTO_TOO_BIG_MESSAGE = "That image is over 2 MB - choose a smaller one.";
 const ACCESS_ADMIN_UID = "7OaNUgKTq6UVOc5pikdPiFTou0t2";
 const FIRESTORE_DOC_LIMIT = 1000000;
 const FIRESTORE_DOC_WARNING = 800000;
@@ -382,9 +385,11 @@ function normalizeIngredientCatalog(value) {
         {
           key,
           name,
+          category: typeof item.category === "string" ? item.category : "",
           serving: item.serving || "1 serving",
           ...nutrientValues(item),
           servingsPerContainer: servingsPerContainer(item),
+          containerUnit: containerUnit(item),
           url: item.url || walmartSearchUrl(name),
           image: safeImageUrl(item.image),
           imagePath: typeof item.imagePath === "string" ? item.imagePath : ""
@@ -685,8 +690,13 @@ function subscribeToHousehold(householdId) {
     subscribeToAccessManagement();
     renderHouseholdMembers();
     state = normalizeState(household);
-    currentInviteCode = `${householdId}.${household.inviteToken}`;
+    // Short codes are the token itself; older households still show the long
+    // id.token code until the owner's app swaps it for a short one.
+    currentInviteCode = isShortInviteCode(household.inviteToken) ? household.inviteToken : `${householdId}.${household.inviteToken}`;
     authEls.householdCode.textContent = currentInviteCode;
+    if (!isShortInviteCode(household.inviteToken) && household.ownerUid === cloud.auth.currentUser?.uid) {
+      void ensureShortInviteCode(householdId);
+    }
     cloudDataLoaded = true;
     authEls.appShell.hidden = false;
     authEls.signedIn.hidden = false;
@@ -890,6 +900,13 @@ function openTabHome(tab) {
   if (tab === "recipes") {
     openRecipeId = null;
     showRecipesView();
+  } else if (tab === "ingredients") {
+    // The tab is a fresh start: no half-edited ingredient, no pending trip back
+    // to the recipe editor.
+    returnToRecipeEditor = false;
+    resetIngredientForm();
+    activateAppView(tab, tab);
+    document.getElementById("back-to-recipe-editor").hidden = true;
   } else {
     activateAppView(tab, tab);
   }
@@ -1642,8 +1659,8 @@ function renderRecipes() {
       openRecipeId = null;
       renderRecipes();
     });
-    detail.querySelector("[data-edit-open-recipe]").addEventListener("click", () => {
-      showRecipeEditor(selectedRecipe);
+    detail.querySelectorAll("[data-edit-open-recipe]").forEach((button) => {
+      button.addEventListener("click", () => showRecipeEditor(selectedRecipe));
     });
     detail.querySelector("[data-cook-recipe]").addEventListener("click", () => cookRecipe(scaledRecipe(selectedRecipe, recipeScale(selectedRecipe.id))));
     detail.querySelectorAll("[data-recipe-scale]").forEach((button) => {
@@ -1916,7 +1933,9 @@ function recipeDetailMarkup(savedRecipe) {
   const servings = formatQuantity(Number(recipe.servings || 1));
   // Shared across the steps so a repeated ingredient takes its amounts in order.
   const mentionsSeen = new Map();
-  const stockLine = coverage.total && hasKitchenStock()
+  // Only flag lines once there is a pantry to compare against.
+  const showStockFlags = coverage.total > 0 && hasKitchenStock();
+  const stockLine = showStockFlags
     ? coverage.ready
       ? '<p class="recipe-hero-stock is-ready">✓ Everything is in your kitchen</p>'
       : `<p class="recipe-hero-stock">${coverage.have} of ${coverage.total} ingredients in your kitchen</p>`
@@ -1929,7 +1948,13 @@ function recipeDetailMarkup(savedRecipe) {
         ${image ? `<img class="recipe-detail-image" src="${escapeHtml(image)}" alt="${escapeHtml(recipe.name)}" data-cloud-image data-image-label="${escapeHtml(recipe.name)}" />` : ""}
       </div>
       <div class="recipe-hero-body">
-        <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}${scale === 1 ? "" : ` · ${escapeHtml(recipeScaleOptions.find((option) => option.value === scale)?.label || `${scale}×`)} recipe`}</p>
+        <div class="recipe-hero-topline">
+          <p class="eyebrow">${escapeHtml(recipe.category || "Recipe")} · Serves ${servings}${scale === 1 ? "" : ` · ${escapeHtml(recipeScaleOptions.find((option) => option.value === scale)?.label || `${scale}×`)} recipe`}</p>
+          <div class="recipe-hero-icons">
+            ${favoriteButtonMarkup(recipe)}
+            <button class="recipe-hero-icon-button" data-edit-open-recipe type="button" aria-label="Edit recipe" title="Edit recipe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg></button>
+          </div>
+        </div>
         <h2>${escapeHtml(recipe.name)}</h2>
         ${recipe.notes ? `<p class="recipe-hero-notes">${escapeHtml(recipe.notes)}</p>` : ""}
         ${stockLine}
@@ -1955,6 +1980,12 @@ function recipeDetailMarkup(savedRecipe) {
           ${recipe.ingredients
             .map((ingredient, index) => {
               const { amount, name } = recipeIngredientParts(ingredient);
+              const stock = showStockFlags ? ingredientStockStatus(ingredient) : null;
+              const flag = stock === "missing"
+                ? '<span class="ingredient-stock-flag">Missing</span>'
+                : stock === "short"
+                  ? '<span class="ingredient-stock-flag is-short">Low</span>'
+                  : "";
               return `
                 <li>
                   <label>
@@ -1962,6 +1993,7 @@ function recipeDetailMarkup(savedRecipe) {
                     <span class="check-box" aria-hidden="true"></span>
                     <span class="ingredient-checklist-amount">${escapeHtml(amount || "")}</span>
                     <span class="ingredient-checklist-name">${escapeHtml(name)}</span>
+                    ${flag}
                   </label>
                 </li>`;
             })
@@ -1972,7 +2004,7 @@ function recipeDetailMarkup(savedRecipe) {
         <h3>Instructions · ${steps.length}</h3>
         ${steps.length
           ? `<ol class="method-steps">${steps
-              .map((step, index) => `<li><span class="method-number" aria-hidden="true">${index + 1}</span><p>${highlightIngredientMentions(step, recipe, mentionsSeen)}</p></li>`)
+              .map((step, index) => `<li><span class="method-number" aria-hidden="true">${index + 1}</span><p data-step-index="${index}">${highlightIngredientMentions(step, recipe, mentionsSeen)}</p></li>`)
               .join("")}</ol>`
           : '<p class="empty-state">No instructions added yet.</p>'}
         <details class="recipe-totals nutrition-only">
@@ -2233,7 +2265,9 @@ function recipeIngredientAmounts(recipe) {
 
 function mentionMarkup(text, amount) {
   if (!amount) return escapeHtml(text);
-  return `<span class="ingredient-mention">${escapeHtml(text)}</span> <span class="ingredient-mention-amount">(${escapeHtml(amount)})</span>`;
+  // The space sits inside the amount span so everything outside the amounts is
+  // exactly the step's own text (the recipe-page labeller counts on that).
+  return `<span class="ingredient-mention">${escapeHtml(text)}</span><span class="ingredient-mention-amount"> (${escapeHtml(amount)})</span>`;
 }
 
 // `seen` counts mentions per name across all of a recipe's steps: the nth
@@ -3191,15 +3225,128 @@ function macroProgressRow(nutrient, progress, editing) {
     </div>`;
 }
 
+// Store-aisle style sections for the ingredient index, in display order.
+const ingredientCategories = [
+  "Produce",
+  "Meat & seafood",
+  "Dairy & eggs",
+  "Bakery & grains",
+  "Baking",
+  "Spices & seasonings",
+  "Oils, sauces & condiments",
+  "Canned & dry goods",
+  "Frozen",
+  "Snacks & sweets",
+  "Drinks",
+  "Other"
+];
+
+// Keywords match at the start of a word ("tea" never matches "steak"), the
+// longest match wins ("chicken broth" over "chicken"), and ties go to the
+// earlier category, so "garlic powder" lands in spices rather than produce.
+const ingredientCategoryKeywords = [
+  ["Baking", ["baking powder", "baking soda", "yeast", "cornstarch", "flour", "sugar", "vanilla", "cocoa", "chocolate chip", "sprinkles", "food coloring", "extract", "gelatin", "corn syrup", "molasses"]],
+  ["Spices & seasonings", ["salt", "pepper flakes", "black pepper", "peppercorn", "powder", "seasoning", "spice", "paprika", "cumin", "oregano", "basil leaves", "thyme", "rosemary", "cinnamon", "nutmeg", "chili flakes", "red pepper flake", "bay leaf", "bay leaves", "turmeric", "curry", "cayenne", "allspice", "clove", "ginger ground", "italian seasoning", "everything bagel", "rub", "chipotle"]],
+  ["Oils, sauces & condiments", ["oil", "vinegar", "sauce", "ketchup", "mustard", "mayo", "mayonnaise", "dressing", "salsa", "soy", "sriracha", "honey", "syrup", "jam", "jelly", "peanut butter", "relish", "pesto", "hummus", "worcestershire", "marinade", "glaze", "spray"]],
+  ["Frozen", ["frozen", "ice cream", "popsicle", "tater tot"]],
+  ["Drinks", ["juice", "soda", "coffee", "tea", "water", "kombucha", "lemonade", "wine", "beer", "sparkling"]],
+  ["Dairy & eggs", ["egg", "milk", "cheese", "cheddar", "mozzarella", "parmesan", "butter", "yogurt", "yoghurt", "cream", "half and half", "half & half", "cottage", "ricotta", "feta", "sour cream", "creamer", "ghee"]],
+  ["Meat & seafood", ["chicken", "beef", "pork", "turkey", "bacon", "sausage", "ham", "steak", "ground meat", "lamb", "salmon", "tuna", "shrimp", "fish", "cod", "tilapia", "crab", "lobster", "scallop", "prosciutto", "pepperoni", "salami", "chorizo", "hot dog", "meatball", "venison", "duck", "brisket", "ribs", "jerky"]],
+  ["Bakery & grains", ["bread", "bun", "roll", "bagel", "tortilla", "pita", "naan", "croissant", "english muffin", "rice", "pasta", "spaghetti", "noodle", "macaroni", "penne", "oat", "quinoa", "couscous", "cereal", "granola", "cracker", "breadcrumb", "panko", "barley"]],
+  ["Canned & dry goods", ["canned", "can of", "chicken broth", "beef broth", "chicken stock", "beef stock", "broth", "stock", "bean", "lentil", "chickpea", "tomato paste", "diced tomatoes", "crushed tomatoes", "tomato sauce", "soup", "coconut milk", "nut", "almond", "walnut", "pecan", "cashew", "peanut", "seed", "raisin", "dried fruit"]],
+  ["Snacks & sweets", ["chip", "cookie", "candy", "chocolate", "pretzel", "popcorn", "bar", "snack", "gummy", "marshmallow", "dessert"]],
+  ["Produce", ["watermelon", "eggplant", "bell pepper", "apple", "banana", "berry", "berries", "orange", "lemon", "lime", "grape", "melon", "peach", "pear", "plum", "cherry", "mango", "pineapple", "avocado", "tomato", "potato", "onion", "garlic", "carrot", "celery", "lettuce", "spinach", "kale", "cabbage", "broccoli", "cauliflower", "pepper", "jalapeno", "jalapeño", "cucumber", "zucchini", "squash", "mushroom", "corn", "pea", "green bean", "asparagus", "cilantro", "parsley", "basil", "mint", "dill", "scallion", "green onion", "shallot", "leek", "ginger", "herb", "salad", "sprout", "radish", "beet", "yam", "sweet potato", "fruit", "veggie", "vegetable"]]
+];
+
+// Keywords are plain words (no regex characters), so they drop straight in.
+const ingredientCategoryMatchers = ingredientCategoryKeywords.map(([category, words]) => [
+  category,
+  words.map((word) => ({ length: word.length, pattern: new RegExp(`(^|[^a-z])${word}`) }))
+]);
+
+function guessIngredientCategory(name) {
+  const text = String(name || "").toLowerCase();
+  let best = { category: "Other", length: 0 };
+  ingredientCategoryMatchers.forEach(([category, words]) => {
+    words.forEach(({ length, pattern }) => {
+      if (length > best.length && pattern.test(text)) best = { category, length };
+    });
+  });
+  return best.category;
+}
+
+// A chosen category wins; older ingredients without one are sorted by their name.
+function ingredientCategory(ingredient) {
+  return ingredientCategories.includes(ingredient?.category) ? ingredient.category : guessIngredientCategory(ingredient?.name);
+}
+
+function populateIngredientCategorySelect() {
+  const select = document.getElementById("ingredient-category");
+  if (!select || select.options.length) return;
+  select.innerHTML = `<option value="">Auto (from name)</option>${ingredientCategories
+    .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    .join("")}`;
+}
+
+let ingredientCategoryFilter = "";
+
 function renderIngredients() {
-  const ingredients = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
+  const all = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
   const list = document.getElementById("ingredient-list");
-  if (!ingredients.length) {
+  const filters = document.getElementById("ingredient-filters");
+  const searchInput = document.getElementById("ingredient-search");
+  if (!all.length) {
+    filters.innerHTML = "";
+    searchInput.closest("label").hidden = true;
     list.innerHTML = '<p class="empty-state">Add an ingredient with its serving macros before building a recipe.</p>';
     return;
   }
+  searchInput.closest("label").hidden = false;
 
-  list.innerHTML = ingredients.map(ingredientTile).join("");
+  const present = ingredientCategories.filter((category) => all.some((ingredient) => ingredientCategory(ingredient) === category));
+  if (ingredientCategoryFilter && !present.includes(ingredientCategoryFilter)) ingredientCategoryFilter = "";
+  filters.innerHTML = [
+    `<button class="filter-chip" type="button" data-ingredient-category="" aria-pressed="${!ingredientCategoryFilter}">All</button>`,
+    ...present.map(
+      (category) =>
+        `<button class="filter-chip" type="button" data-ingredient-category="${escapeHtml(category)}" aria-pressed="${ingredientCategoryFilter === category}">${escapeHtml(category)}</button>`
+    )
+  ].join("");
+  filters.querySelectorAll("[data-ingredient-category]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      ingredientCategoryFilter = chip.dataset.ingredientCategory;
+      renderIngredients();
+    });
+  });
+
+  // Every word must appear in the name or the category, in any order.
+  const terms = searchInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const ingredients = all.filter((ingredient) => {
+    const category = ingredientCategory(ingredient);
+    if (ingredientCategoryFilter && category !== ingredientCategoryFilter) return false;
+    const haystack = `${ingredient.name} ${category}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+
+  if (!ingredients.length) {
+    list.innerHTML = '<p class="empty-state">No ingredients match. Try a different search or category.</p>';
+    return;
+  }
+
+  list.innerHTML = ingredientCategories
+    .map((category) => {
+      const items = ingredients.filter((ingredient) => ingredientCategory(ingredient) === category);
+      if (!items.length) return "";
+      return `
+        <section class="ingredient-group">
+          <header class="recipe-category-heading">
+            <h4>${escapeHtml(category)}</h4>
+            <span>${items.length}</span>
+          </header>
+          <div class="mapping-list">${items.map(ingredientTile).join("")}</div>
+        </section>`;
+    })
+    .join("");
   setupCloudImageDiagnostics(list);
 
   list.querySelectorAll("[data-edit-ingredient]").forEach((button) => {
@@ -3530,27 +3677,27 @@ function recipeIngredientUsage(item) {
 // ("salt to taste") are not counted - they should never block a recipe from
 // reading as makeable. A unit that cannot convert counts as short, never as have.
 function recipeStockCoverage(recipe) {
-  const lines = (recipe.ingredients || []).map(recipeIngredientUsage).filter((usage) => usage && usage.quantity > 0);
-  const coverage = { total: lines.length, have: 0, short: 0, missing: 0, ready: false };
-
-  lines.forEach((usage) => {
-    const entry = stockedFor(usage.key, usage.name);
-    if (!entry) {
-      coverage.missing += 1;
-      return;
-    }
-
-    const needed = usage.unit === entry.unit
-      ? usage.quantity
-      : convertMeasurement(usage.quantity, usage.unit, entry.unit);
-    if (needed === null || !Number.isFinite(needed)) coverage.short += 1;
-    // Tolerance keeps 0.30000000000000004 from reading as short of 0.3.
-    else if (entry.quantity + 1e-6 >= needed) coverage.have += 1;
-    else coverage.short += 1;
-  });
-
+  const statuses = (recipe.ingredients || []).map(ingredientStockStatus).filter(Boolean);
+  const coverage = { total: statuses.length, have: 0, short: 0, missing: 0, ready: false };
+  statuses.forEach((status) => { coverage[status] += 1; });
   coverage.ready = coverage.total > 0 && coverage.have === coverage.total;
   return coverage;
+}
+
+// "have", "short" or "missing" for one recipe line, or null when the line has
+// no quantity and so is never counted.
+function ingredientStockStatus(item) {
+  const usage = recipeIngredientUsage(item);
+  if (!usage || !(usage.quantity > 0)) return null;
+  const entry = stockedFor(usage.key, usage.name);
+  if (!entry) return "missing";
+
+  const needed = usage.unit === entry.unit
+    ? usage.quantity
+    : convertMeasurement(usage.quantity, usage.unit, entry.unit);
+  if (needed === null || !Number.isFinite(needed)) return "short";
+  // Tolerance keeps 0.30000000000000004 from reading as short of 0.3.
+  return entry.quantity + 1e-6 >= needed ? "have" : "short";
 }
 
 function hasKitchenStock() {
@@ -4119,6 +4266,9 @@ function renderAll() {
 
 function setupForms() {
   populateNutrientInputs();
+  populateIngredientCategorySelect();
+  setupStepLabelling();
+  document.getElementById("ingredient-search").addEventListener("input", renderIngredients);
   populateServingUnits();
   populateKitchenStockUnits();
   bindQuantityInput(document.getElementById("kitchen-stock-quantity"));
@@ -4285,6 +4435,7 @@ function setupForms() {
     const ingredient = {
       key,
       name,
+      category: document.getElementById("ingredient-category").value,
       serving: readServingInputs(),
       ...readNutrientInputs(),
       servingsPerContainer: servingsPerContainer({
@@ -4310,13 +4461,7 @@ function setupForms() {
     }
 
     state.ingredients[key] = ingredient;
-    event.target.reset();
-    delete event.target.dataset.editingKey;
-    resetIngredientMacroInputs();
-    clearIngredientPhotoDraft();
-    ingredientDraftImage = "";
-    setIngredientPhotoMessage(OPTIONAL_PHOTO_MESSAGE);
-    renderIngredientPhotoPreview();
+    resetIngredientForm();
     renderAll();
     if (returnToRecipeEditor) {
       returnToRecipeEditor = false;
@@ -4326,7 +4471,10 @@ function setupForms() {
     authEls.syncStatus.textContent = "Saving";
     setAccountStatus("checking", "Signed in", "Saving to Firebase...");
     const saved = await saveCloudState("Ingredient save failed");
-    if (saved) setAuthMessage("Ingredient saved to Firebase.");
+    if (saved) {
+      setAuthMessage("Ingredient saved to Firebase.");
+      showToast(previousIngredient ? `${name} updated` : `${name} added to ingredients`);
+    }
   });
 
   document.getElementById("kitchen-stock-form").addEventListener("submit", async (event) => {
@@ -4508,7 +4656,7 @@ function addRecipeStepRow(value = "") {
   row.className = "recipe-step-row";
   const { text, tags } = parseStepTags(value);
   row.innerHTML = `
-    <button class="recipe-step-number drag-handle" type="button" aria-label="Reorder step" title="Drag to reorder, or use the arrow keys"></button>
+    <button class="recipe-step-number drag-handle" type="button" aria-label="Reorder step" title="Press and hold to reorder, or use the arrow keys"></button>
     <div class="recipe-step-field">
       <label>
         <span class="recipe-step-label">Step</span>
@@ -4529,10 +4677,13 @@ function addRecipeStepRow(value = "") {
   stepEditorTags.set(row.querySelector(".recipe-step-input"), tags);
   bindStepIngredientTagger(row);
 
-  row.querySelector(".row-remove").addEventListener("click", () => {
-    row.remove();
-    if (!container.children.length) addRecipeStepRow();
-    updateRecipeStepNumbers();
+  bindConfirmRemove(row.querySelector(".row-remove"), {
+    isEmpty: () => !row.querySelector(".recipe-step-input").value.trim(),
+    onRemove: () => {
+      row.remove();
+      if (!container.children.length) addRecipeStepRow();
+      updateRecipeStepNumbers();
+    }
   });
   container.append(row);
   makeRowsSortable(container, { item: ".recipe-step-row", onReorder: updateRecipeStepNumbers });
@@ -4606,6 +4757,7 @@ function bindStepIngredientTagger(row) {
   const layer = row.querySelector(".recipe-step-highlights");
   const select = row.querySelector(".recipe-step-tag");
   const hint = row.querySelector(".recipe-step-tag-hint");
+  const tools = row.querySelector(".recipe-step-tools");
   let selection = { start: 0, end: 0 };
   let previousText = textarea.value;
   const tags = () => stepEditorTags.get(textarea) || [];
@@ -4712,6 +4864,8 @@ function bindStepIngredientTagger(row) {
     } else if (hint.dataset.selection) {
       setHint("");
     }
+    // The picker only shows while there are words to label (or a label under the caret).
+    tools.classList.toggle("is-active", Boolean(picked || current));
     refreshChoices();
   };
 
@@ -4817,6 +4971,189 @@ function recipeFormLabelChoices() {
 
   const unique = [...new Map(choices.map((choice) => [choice.value.toLowerCase(), choice])).values()];
   return unique.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// The same label choices as recipeFormLabelChoices, built from a saved recipe.
+function recipeLabelChoices(recipe) {
+  const rows = (recipe.ingredients || []).map(recipeIngredientMention).filter((row) => row?.name);
+  const totals = new Map();
+  rows.forEach((row) => {
+    if (row.amount) totals.set(row.name.toLowerCase(), (totals.get(row.name.toLowerCase()) || 0) + 1);
+  });
+  const seen = new Map();
+  const choices = rows.map((row) => {
+    const key = row.name.toLowerCase();
+    if (!row.amount) return totals.has(key) ? null : { value: row.name, name: row.name, label: row.name };
+    const use = (seen.get(key) || 0) + 1;
+    seen.set(key, use);
+    return {
+      value: totals.get(key) > 1 ? `${row.name}#${use}` : row.name,
+      name: row.name,
+      label: `${row.name} - ${row.amount}`
+    };
+  }).filter(Boolean);
+  return [...new Map(choices.map((choice) => [choice.value.toLowerCase(), choice])).values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---- Labelling step words on the recipe page --------------------------------
+// Select words in a step and a small picker appears beside them; choosing an
+// ingredient saves the label straight onto the recipe, no editor needed.
+let stepLabelTarget = null;
+let stepLabelInteracting = false;
+
+// Characters from the start of the step to (node, offset), not counting the
+// "(12 oz)" asides, which are not part of the step's own text.
+function stepTextOffset(paragraph, node, offset) {
+  const range = document.createRange();
+  range.setStart(paragraph, 0);
+  range.setEnd(node, offset);
+  const fragment = range.cloneContents();
+  fragment.querySelectorAll(".ingredient-mention-amount").forEach((aside) => aside.remove());
+  return fragment.textContent.length;
+}
+
+function stepLabelPopover() {
+  let popover = document.getElementById("step-label-popover");
+  if (popover) return popover;
+  popover = document.createElement("div");
+  popover.id = "step-label-popover";
+  popover.className = "step-label-popover";
+  popover.hidden = true;
+  popover.innerHTML = '<select aria-label="Label the selected words as an ingredient"></select>';
+  document.body.appendChild(popover);
+  // Pressing the picker collapses the page selection; remember that it was us.
+  popover.addEventListener("pointerdown", () => {
+    stepLabelInteracting = true;
+  });
+  const select = popover.querySelector("select");
+  select.addEventListener("change", () => {
+    const choice = select.value;
+    if (choice) applyStepLabel(choice);
+    hideStepLabelPopover();
+  });
+  select.addEventListener("blur", () => {
+    stepLabelInteracting = false;
+    if (!document.getSelection()?.toString().trim()) hideStepLabelPopover();
+  });
+  return popover;
+}
+
+function hideStepLabelPopover() {
+  const popover = document.getElementById("step-label-popover");
+  if (popover) popover.hidden = true;
+  stepLabelTarget = null;
+  stepLabelInteracting = false;
+}
+
+function positionStepLabelPopover() {
+  const popover = document.getElementById("step-label-popover");
+  if (!popover || popover.hidden || !stepLabelTarget?.rect) return;
+  const rect = stepLabelTarget.rect;
+  const width = popover.offsetWidth;
+  const left = Math.min(Math.max(12, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 12);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${rect.bottom + 10}px`;
+}
+
+function updateStepLabelPopover() {
+  if (stepLabelInteracting) return;
+  const selection = document.getSelection();
+  const recipe = openRecipeId ? recipeById(openRecipeId) : null;
+  if (!selection || selection.isCollapsed || !selection.rangeCount || !recipe) {
+    hideStepLabelPopover();
+    return;
+  }
+  const range = selection.getRangeAt(0);
+  const start = range.startContainer.parentElement?.closest("#recipe-detail .method-steps p[data-step-index]")
+    || (range.startContainer.nodeType === 1 && range.startContainer.closest("#recipe-detail .method-steps p[data-step-index]"));
+  const end = range.endContainer.parentElement?.closest("#recipe-detail .method-steps p[data-step-index]")
+    || (range.endContainer.nodeType === 1 && range.endContainer.closest("#recipe-detail .method-steps p[data-step-index]"));
+  if (!start || start !== end) {
+    hideStepLabelPopover();
+    return;
+  }
+
+  const index = Number(start.dataset.stepIndex);
+  const { text, tags } = parseStepTags(recipeSteps(recipe)[index]);
+  let from = stepTextOffset(start, range.startContainer, range.startOffset);
+  let to = stepTextOffset(start, range.endContainer, range.endOffset);
+  while (from < to && /\s/.test(text[from])) from += 1;
+  while (to > from && /\s/.test(text[to - 1])) to -= 1;
+  const choices = recipeLabelChoices(recipe);
+  const touching = stepTagsTouching(tags, from, to);
+  if (from === to || (!choices.length && !touching.length)) {
+    hideStepLabelPopover();
+    return;
+  }
+
+  const picked = text.slice(from, to);
+  stepLabelTarget = { recipeId: recipe.id, index, from, to, rect: range.getBoundingClientRect() };
+  const ranked = choices
+    .map((choice, order) => ({ choice, order, score: labelMatchScore(picked, choice.name) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order);
+  const options = (list) => list.map(({ choice }) => optionMarkup(choice.value, choice.label)).join("");
+  const matches = ranked.filter((entry) => entry.score > 0);
+  const others = ranked.filter((entry) => entry.score <= 0);
+  const popover = stepLabelPopover();
+  const select = popover.querySelector("select");
+  select.innerHTML = [
+    optionMarkup("", `Label "${picked.length > 24 ? `${picked.slice(0, 23)}…` : picked}" as...`),
+    matches.length ? `<optgroup label="Best matches">${options(matches)}</optgroup>` : "",
+    others.length ? (matches.length ? `<optgroup label="Other ingredients">${options(others)}</optgroup>` : options(others)) : "",
+    touching.length ? optionMarkup(untagStepValue, `Remove label${touching.length > 1 ? "s" : ""}`) : ""
+  ].join("");
+  select.value = "";
+  popover.hidden = false;
+  positionStepLabelPopover();
+}
+
+function applyStepLabel(choice) {
+  const target = stepLabelTarget;
+  const recipe = target ? recipeById(target.recipeId) : null;
+  if (!recipe || !requireCloudWrite()) return;
+  const steps = recipeSteps(recipe);
+  const { text, tags } = parseStepTags(steps[target.index]);
+  const { from, to } = target;
+  if (/[{}|]/.test(text.slice(from, to))) {
+    showToast("Those words can't be labelled");
+    return;
+  }
+
+  let next;
+  let message;
+  if (choice === untagStepValue) {
+    const touching = stepTagsTouching(tags, from, to);
+    next = tags.filter((tag) => !touching.includes(tag));
+    message = touching.length > 1 ? "Labels removed" : "Label removed";
+  } else {
+    next = [...tags.filter((tag) => !(tag.start < to && tag.end > from)), { start: from, end: to, target: choice }]
+      .sort((a, b) => a.start - b.start);
+    message = `Labelled as ${parseStepTagTarget(choice).name}`;
+  }
+
+  steps[target.index] = serializeStepTags(text, next);
+  recipe.steps = steps;
+  document.getSelection()?.removeAllRanges();
+  const top = window.scrollY;
+  saveState();
+  renderAll();
+  window.scrollTo({ top });
+  showToast(message);
+}
+
+function setupStepLabelling() {
+  document.addEventListener("selectionchange", () => {
+    // Let the drag handles settle before the picker jumps around.
+    clearTimeout(setupStepLabelling.timer);
+    setupStepLabelling.timer = setTimeout(updateStepLabelPopover, 120);
+  });
+  window.addEventListener("scroll", () => {
+    const selection = document.getSelection();
+    if (stepLabelTarget && selection?.rangeCount && !selection.isCollapsed) {
+      stepLabelTarget.rect = selection.getRangeAt(0).getBoundingClientRect();
+      positionStepLabelPopover();
+    }
+  }, { passive: true });
 }
 
 // How well highlighted step words fit an ingredient name: 0 for no shared words,
@@ -4947,6 +5284,31 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
 
 // Pointer-based row reordering: works with mouse and touch, and with the
 // keyboard through the handle's arrow keys.
+// × on an editor row asks first: one tap arms it ("Remove?"), a second tap within
+// a few seconds removes. Blank rows go straight away - nothing to lose.
+function bindConfirmRemove(button, { isEmpty = () => false, onRemove }) {
+  let timer = null;
+  const disarm = () => {
+    clearTimeout(timer);
+    delete button.dataset.confirm;
+    button.setAttribute("aria-label", button.dataset.label);
+  };
+  button.dataset.label = button.getAttribute("aria-label") || "Remove";
+  button.addEventListener("click", () => {
+    if (button.dataset.confirm === "true" || isEmpty()) {
+      disarm();
+      onRemove();
+      return;
+    }
+    button.dataset.confirm = "true";
+    button.setAttribute("aria-label", `${button.dataset.label}? Press again to confirm`);
+    timer = setTimeout(disarm, 3500);
+  });
+  button.addEventListener("blur", () => setTimeout(() => {
+    if (document.activeElement !== button) disarm();
+  }, 150));
+}
+
 function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder = () => {} }) {
   if (!container || container.dataset.sortable === "true") return;
   container.dataset.sortable = "true";
@@ -4954,8 +5316,26 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
   let row = null;
   let pointerId = null;
   let basePointerY = 0;
+  // Every drag (touch or mouse) starts only after a long press on the handle,
+  // so a scroll, a stray tap or a quick swipe never reorders anything.
+  let pending = null;
+  const holdMs = 500;
+  const cancelPending = () => {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    delete pending.target.dataset.armed;
+    pending = null;
+  };
+  const begin = (target, id, y) => {
+    row = target;
+    pointerId = id;
+    basePointerY = y;
+    row.dataset.dragging = "true";
+    container.dataset.dragging = "true";
+  };
 
   const stop = () => {
+    cancelPending();
     if (!row) return;
     row.style.transform = "";
     delete row.dataset.dragging;
@@ -4970,16 +5350,31 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
     if (!grip || event.button > 0) return;
     const target = grip.closest(item);
     if (!target) return;
-    row = target;
-    pointerId = event.pointerId;
-    basePointerY = event.clientY;
-    row.dataset.dragging = "true";
-    container.dataset.dragging = "true";
-    grip.setPointerCapture(pointerId);
+    grip.setPointerCapture(event.pointerId);
     event.preventDefault();
+    cancelPending();
+    target.dataset.armed = "true";
+    pending = {
+      target,
+      pointerId: event.pointerId,
+      y: event.clientY,
+      lastY: event.clientY,
+      timer: setTimeout(() => {
+        const ready = pending;
+        cancelPending();
+        begin(ready.target, ready.pointerId, ready.lastY);
+        navigator.vibrate?.(12);
+      }, holdMs)
+    };
   });
 
   container.addEventListener("pointermove", (event) => {
+    if (pending && event.pointerId === pending.pointerId) {
+      pending.lastY = event.clientY;
+      // Moving before the hold completes means it wasn't meant as a drag.
+      if (Math.abs(event.clientY - pending.y) > 8) cancelPending();
+      return;
+    }
     if (!row || event.pointerId !== pointerId) return;
     event.preventDefault();
     row.style.transform = `translateY(${event.clientY - basePointerY}px)`;
@@ -5019,7 +5414,7 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
 }
 
 function dragHandleMarkup(label, className = "drag-handle") {
-  return `<button class="${className}" type="button" aria-label="${escapeHtml(label)}" title="Drag to reorder, or use the arrow keys">
+  return `<button class="${className}" type="button" aria-label="${escapeHtml(label)}" title="Press and hold to reorder, or use the arrow keys">
       <svg viewBox="0 0 10 16" aria-hidden="true" focusable="false"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>
     </button>`;
 }
@@ -5077,10 +5472,13 @@ function addRecipeIngredientRow(item = {}) {
     updateRecipeIngredientRow(row);
     refreshRecipeMacroPreview();
   });
-  row.querySelector(".row-remove").addEventListener("click", () => {
-    row.remove();
-    if (!container.children.length) addRecipeIngredientRow();
-    refreshRecipeMacroPreview();
+  bindConfirmRemove(row.querySelector(".row-remove"), {
+    isEmpty: () => !search.value.trim(),
+    onRemove: () => {
+      row.remove();
+      if (!container.children.length) addRecipeIngredientRow();
+      refreshRecipeMacroPreview();
+    }
   });
   row.querySelector(".recipe-ingredient-serving").addEventListener("click", (event) => {
     if (!event.target.closest("[data-add-to-index]")) return;
@@ -5315,6 +5713,7 @@ function openIngredientIndexFor(name) {
   document.getElementById("back-to-recipe-editor").hidden = false;
   const input = document.getElementById("ingredient-name");
   input.value = name;
+  syncIngredientSaveButton();
   window.scrollTo({ top: 0 });
   input.focus({ preventScroll: true });
 }
@@ -5402,6 +5801,7 @@ function fillIngredientForm(ingredient) {
   const form = document.getElementById("ingredient-form");
   form.dataset.editingKey = ingredient.key;
   document.getElementById("ingredient-name").value = ingredient.name;
+  document.getElementById("ingredient-category").value = ingredientCategories.includes(ingredient.category) ? ingredient.category : "";
   setServingInputs(ingredient.serving);
   nutrients.forEach((nutrient) => {
     document.getElementById(nutrientInputId(nutrient)).value = roundTo(Number(ingredient[nutrient.key] || 0), 2);
@@ -5415,6 +5815,7 @@ function fillIngredientForm(ingredient) {
   document.getElementById("ingredient-photo").value = "";
   setIngredientPhotoMessage(ingredientDraftImage ? "Photo attached." : OPTIONAL_PHOTO_MESSAGE);
   renderIngredientPhotoPreview();
+  syncIngredientSaveButton();
   document.getElementById("ingredient-name").focus();
 }
 
@@ -5448,9 +5849,48 @@ function resetKitchenStockForm() {
   document.getElementById("kitchen-stock-cancel").hidden = true;
 }
 
+// Save ingredient floats over the page, so it only appears once the form holds
+// something: any field changed from a blank form, a photo, or an ingredient being edited.
+let blankIngredientFormSnapshot = null;
+
+function ingredientFormSnapshot() {
+  const form = document.getElementById("ingredient-form");
+  return JSON.stringify([...form.querySelectorAll('input:not([type="file"]), select, textarea')].map((field) => field.value));
+}
+
+function syncIngredientSaveButton() {
+  const form = document.getElementById("ingredient-form");
+  const button = document.getElementById("save-ingredient");
+  if (!form || !button) return;
+  const hasContent = Boolean(form.dataset.editingKey)
+    || Boolean(ingredientDraftBlob || ingredientDraftImage)
+    || (blankIngredientFormSnapshot !== null && ingredientFormSnapshot() !== blankIngredientFormSnapshot);
+  button.hidden = !hasContent;
+}
+
+// Back to a blank "new ingredient" form, dropping any ingredient being edited.
+function resetIngredientForm() {
+  const form = document.getElementById("ingredient-form");
+  if (!form) return;
+  form.reset();
+  delete form.dataset.editingKey;
+  resetIngredientMacroInputs();
+  clearIngredientPhotoDraft();
+  ingredientDraftImage = "";
+  document.getElementById("ingredient-photo-url").value = "";
+  setIngredientPhotoMessage(OPTIONAL_PHOTO_MESSAGE);
+  renderIngredientPhotoPreview();
+  blankIngredientFormSnapshot = ingredientFormSnapshot();
+  syncIngredientSaveButton();
+}
+
 function resetIngredientMacroInputs() {
   nutrients.forEach((nutrient) => {
     document.getElementById(nutrientInputId(nutrient)).value = 0;
+  });
+  ["ingredient-nutrition", "ingredient-nutrients-more"].forEach((id) => {
+    const section = document.getElementById(id);
+    if (section) section.open = false;
   });
   document.getElementById("ingredient-servings-per-container").value = "1";
   document.getElementById("ingredient-container-unit").value = "container";
@@ -5468,8 +5908,7 @@ function populateNutrientInputs() {
   const container = document.getElementById("ingredient-nutrients");
   if (!container || container.children.length) return;
 
-  container.innerHTML = nutrientGroups
-    .map((group) => {
+  const groupMarkup = (group) => {
       const fields = nutrients
         .filter((nutrient) => nutrient.group === group)
         .map(
@@ -5487,8 +5926,16 @@ function populateNutrientInputs() {
           <span class="macro-field-group-label">${escapeHtml(group)}</span>
           <div class="macro-field-grid">${fields}</div>
         </div>`;
-    })
-    .join("");
+  };
+
+  // Macros stay in view; the long tail of vitamins and minerals folds away.
+  const [primary, ...extra] = nutrientGroups;
+  container.innerHTML = `${groupMarkup(primary)}${extra.length
+    ? `<details class="macro-field-more" id="ingredient-nutrients-more">
+        <summary>${escapeHtml(extra.join(" and "))}</summary>
+        <div class="macro-field-groups">${extra.map(groupMarkup).join("")}</div>
+      </details>`
+    : ""}`;
 }
 
 function readNutrientInputs() {
@@ -5505,6 +5952,16 @@ function setupAuth() {
   document.getElementById("sign-in-github").addEventListener("click", authenticateWithGitHub);
   document.getElementById("create-household").addEventListener("click", createHousehold);
   document.getElementById("join-household-form").addEventListener("submit", joinHousehold);
+  // Typing a short code: upper-case it and add the dash after four characters.
+  // Long legacy codes (they contain a ".") are left exactly as pasted.
+  document.getElementById("household-invite").addEventListener("input", (event) => {
+    const input = event.target;
+    if (input.value.includes(".")) return;
+    const compact = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (compact.length > 8) return;
+    const formatted = compact.length > 4 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : compact;
+    if (formatted !== input.value) input.value = formatted;
+  });
   document.getElementById("copy-household-code").addEventListener("click", async () => {
     if (!currentInviteCode) return;
     await copyText(currentInviteCode);
@@ -5606,6 +6063,51 @@ async function leaveHousehold() {
   }
 }
 
+// ---- Invite codes ----------------------------------------------------------
+// XXXX-XXXX from an alphabet without look-alikes (no 0/O, 1/I), easy to read out
+// or type: 32^8, about a trillion codes. invites/{code} maps a code to its household.
+const INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const shortInviteCodePattern = /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
+
+function isShortInviteCode(value) {
+  return shortInviteCodePattern.test(String(value || ""));
+}
+
+function generateInviteCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const chars = [...bytes].map((byte) => INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length]);
+  return `${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+}
+
+// "abcd efgh", "ABCDEFGH" and "abcd-efgh" all read as ABCD-EFGH.
+function normalizeInviteCodeInput(value) {
+  const compact = String(value || "").toUpperCase().replace(/[s-]/g, "");
+  return /^[A-Z0-9]{8}$/.test(compact) ? `${compact.slice(0, 4)}-${compact.slice(4)}` : null;
+}
+
+// The owner's app gives a household with an old UUID token a short code: claim
+// an unused invites/{code} first, then point the household at it. If the rules
+// aren't deployed yet, the claim is refused and nothing changes.
+const shortCodeAttempts = new Set();
+async function ensureShortInviteCode(householdId) {
+  if (shortCodeAttempts.has(householdId)) return;
+  shortCodeAttempts.add(householdId);
+  const user = cloud?.auth.currentUser;
+  if (!user) return;
+  try {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = generateInviteCode();
+      const inviteRef = cloud.doc(cloud.db, "invites", code);
+      if ((await cloud.getDoc(inviteRef)).exists()) continue;
+      await cloud.setDoc(inviteRef, { householdId, createdBy: user.uid });
+      await cloud.updateDoc(cloud.doc(cloud.db, "households", householdId), { inviteToken: code });
+      return;
+    }
+  } catch (error) {
+    console.warn("Could not switch to a short invite code:", error);
+  }
+}
+
 async function createHousehold() {
   const user = cloud?.auth.currentUser;
   if (!user) return;
@@ -5643,24 +6145,42 @@ async function joinHousehold(event) {
   if (!user) return;
 
   const inviteCode = document.getElementById("household-invite").value.trim();
-  const separatorIndex = inviteCode.indexOf(".");
-  if (separatorIndex < 1) {
-    setHouseholdMessage("That invite code is not valid. Copy the complete code from the household owner.");
-    return;
-  }
+  const invalid = () => setHouseholdMessage("That invite code is not valid. Check it with the household owner - it looks like ABCD-1234.");
+  const shortCode = normalizeInviteCodeInput(inviteCode);
+  let householdId;
+  let inviteToken;
 
-  const householdId = inviteCode.slice(0, separatorIndex);
-  const inviteToken = inviteCode.slice(separatorIndex + 1);
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidPattern.test(householdId) || !uuidPattern.test(inviteToken)) {
-    setHouseholdMessage("That invite code is not valid. Copy the complete code from the household owner.");
-    return;
+  if (shortCode) {
+    if (!isShortInviteCode(shortCode)) {
+      invalid();
+      return;
+    }
+    inviteToken = shortCode;
+  } else {
+    // Older long codes: <household id>.<token>, both UUIDs.
+    const separatorIndex = inviteCode.indexOf(".");
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    householdId = inviteCode.slice(0, Math.max(separatorIndex, 0));
+    inviteToken = inviteCode.slice(separatorIndex + 1);
+    if (separatorIndex < 1 || !uuidPattern.test(householdId) || !uuidPattern.test(inviteToken)) {
+      invalid();
+      return;
+    }
   }
 
   setHouseholdControlsDisabled(true);
   setHouseholdMessage("Joining the shared household...");
 
   try {
+    if (shortCode) {
+      const invite = await cloud.getDoc(cloud.doc(cloud.db, "invites", shortCode));
+      if (!invite.exists()) {
+        setHouseholdControlsDisabled(false);
+        invalid();
+        return;
+      }
+      householdId = invite.data().householdId;
+    }
     const memberRef = cloud.doc(cloud.db, "households", householdId, "members", user.uid);
     const userRef = cloud.doc(cloud.db, "users", user.uid);
     const profile = await loadStoredProfile(user);
@@ -6011,7 +6531,8 @@ async function handleProfilePhotoChange(event) {
     return;
   }
   if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
-    setProfileMessage("Images must be smaller than 2 MB.");
+    setProfileMessage("");
+    showToast(PHOTO_TOO_BIG_MESSAGE, { tone: "error" });
     event.target.value = "";
     return;
   }
@@ -6301,6 +6822,7 @@ function renderIngredientPhotoPreview() {
   preview.style.backgroundImage = image ? `url("${image}")` : "";
   preview.dataset.empty = image ? "false" : "true";
   document.getElementById("remove-ingredient-photo").hidden = !image;
+  syncIngredientSaveButton();
 }
 
 function clearIngredientPhotoDraft() {
@@ -6375,7 +6897,8 @@ async function readPhotoLink(value, maxWidth, setMessage) {
       return null;
     }
     if (blob.size > PHOTO_LINK_MAX_BYTES) {
-      setMessage("That image is too large to use.");
+      setMessage("");
+      showToast("That image is too large to use - try a different link.", { tone: "error" });
       return null;
     }
     // Small WebPs keep their bytes (see readPhotoSelection); everything else is resized to JPEG.
@@ -6403,7 +6926,8 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
     return null;
   }
   if (file.size >= PHOTO_UPLOAD_MAX_BYTES) {
-    setMessage("Images must be smaller than 2 MB.");
+    setMessage("");
+    showToast(PHOTO_TOO_BIG_MESSAGE, { tone: "error" });
     return null;
   }
 
@@ -6585,6 +7109,28 @@ function setAuthMessage(message) {
   authEls.accountMessage.textContent = message;
 }
 
+// A brief confirmation that floats above the page (and above the phone tab bar).
+let toastTimer = null;
+function showToast(message, { tone = "success" } = {}) {
+  let toast = document.getElementById("app-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "app-toast";
+    toast.className = "app-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    document.body.appendChild(toast);
+  }
+  toast.dataset.tone = tone;
+  toast.innerHTML = `<span class="app-toast-icon" aria-hidden="true">${tone === "error" ? "!" : "✓"}</span><span>${escapeHtml(message)}</span>`;
+  // Restart the entrance even when a toast is already showing.
+  toast.classList.remove("is-visible");
+  void toast.offsetWidth;
+  toast.classList.add("is-visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("is-visible"), 2800);
+}
+
 function setHouseholdMessage(message) {
   authEls.householdMessage.textContent = message;
 }
@@ -6683,6 +7229,10 @@ setupCookDialog();
 setupAddToPlan();
 setupPlannerLayout();
 setupForms();
+// Start from a true blank form so the floating Save knows what "empty" looks like.
+resetIngredientForm();
+document.getElementById("ingredient-form").addEventListener("input", syncIngredientSaveButton);
+document.getElementById("ingredient-form").addEventListener("change", syncIngredientSaveButton);
 setupRecipeImport();
 setupStockReceiptImport();
 setupAuth();

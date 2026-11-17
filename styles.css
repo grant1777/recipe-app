@@ -5475,7 +5475,8 @@ input[type="checkbox"] {
 }
 
 .grocery-list > .empty-state {
-  padding: 18px 0;
+  margin-top: 14px;
+  padding: 18px 20px;
 }
 
 .grocery-rows {
@@ -5840,7 +5841,7 @@ input[type="checkbox"] {
   display: none;
 }
 
-.recipe-step-row:focus-within .recipe-step-tools {
+.recipe-step-row:focus-within .recipe-step-tools.is-active {
   display: flex;
 }
 
@@ -5905,6 +5906,137 @@ input[type="checkbox"] {
 
 .recipe-photo-hint:empty {
   display: none;
+}
+
+/* Ingredient photo: the picker buttons sit on the image itself instead of in
+   their own block underneath, and the "Photo" heading goes. */
+#ingredient-form .recipe-photo-controls {
+  display: contents;
+}
+
+#ingredient-form .recipe-photo-controls > strong {
+  display: none;
+}
+
+#ingredient-form .recipe-photo-preview {
+  grid-area: 1 / 1;
+}
+
+#ingredient-form .recipe-photo-buttons {
+  align-self: start;
+  grid-area: 1 / 1;
+  justify-self: start;
+  margin: 12px;
+  z-index: 1;
+}
+
+/* The image-link row rides along the bottom edge of the photo. */
+#ingredient-form .photo-link-row {
+  align-self: end;
+  grid-area: 1 / 1;
+  margin: 12px;
+  z-index: 1;
+}
+
+#ingredient-form .photo-link-row input {
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.14);
+  min-height: 40px;
+  padding-block: 8px;
+}
+
+#ingredient-form .photo-link-row .secondary-button {
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.14);
+}
+
+/* Collapsible Nutrition card: the summary takes the legend's place. */
+.macro-details {
+  display: block;
+}
+
+.macro-details > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  list-style: none;
+  padding: 4px 0;
+  text-transform: uppercase;
+}
+
+.macro-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.macro-details > summary span {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.65;
+  text-transform: none;
+}
+
+.macro-details > summary::after {
+  content: "▾";
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform 0.15s;
+}
+
+.macro-details[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.macro-details > .macro-field-groups {
+  margin-top: 10px;
+}
+
+#ingredient-form .recipe-photo-buttons .secondary-button {
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.14);
+}
+
+#ingredient-form .recipe-photo-buttons .text-button {
+  background: var(--card);
+  border-radius: 999px;
+  padding: 9px 14px;
+  text-decoration: none;
+}
+
+.macro-field-more {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.macro-field-more > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  list-style: none;
+  padding: 4px 0;
+  text-transform: uppercase;
+}
+
+.macro-field-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.macro-field-more > summary::after {
+  content: "▾";
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform 0.15s;
+}
+
+.macro-field-more[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.macro-field-more > .macro-field-groups {
+  margin-top: 10px;
 }
 
 .recipe-import {
@@ -6053,6 +6185,77 @@ input[type="checkbox"] {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 22px;
+}
+
+.mapping-tools {
+  padding: 20px 22px 22px;
+}
+
+/* An empty list's message spans the row instead of one narrow tile column. */
+.mapping-list > .empty-state {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 680px) {
+  .mapping-tools {
+    padding: 16px 18px 18px;
+  }
+
+  /* Two tiles per row on phones, with the tile internals tightened to fit. */
+  .mapping-list {
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ingredient-tile-visual {
+    font-size: 2rem;
+  }
+
+  .ingredient-tile-body {
+    gap: 4px;
+    padding: 10px 10px 2px;
+  }
+
+  .ingredient-tile-body strong {
+    font-size: 0.9rem;
+  }
+
+  .ingredient-tile-serving {
+    font-size: 0.7rem;
+  }
+
+  .ingredient-tile-macros {
+    gap: 4px;
+  }
+
+  .ingredient-macro {
+    flex-direction: column;
+    gap: 0;
+    padding: 4px 6px;
+  }
+
+  .ingredient-macro em {
+    font-size: 0.56rem;
+  }
+
+  .ingredient-macro b {
+    font-size: 0.78rem;
+  }
+
+  .ingredient-tile-actions {
+    gap: 6px;
+    padding: 8px 10px 10px;
+  }
+
+  .ingredient-tile-actions button {
+    font-size: 0.78rem;
+    min-height: 32px;
+    padding: 4px 6px;
+  }
+
+  .kitchen-stock-tile .ingredient-tile-body {
+    padding-bottom: 10px;
+  }
 }
 
 .drag-handle {
@@ -6989,6 +7192,7 @@ input[type="checkbox"] {
 .plan-today-row,
 .day-badge-long,
 .recipe-tab-stock,
+.ingredient-stock-flag,
 .profile-summary,
 .settings-invite-label {
   display: none;
@@ -7828,6 +8032,7 @@ input[type="checkbox"] {
   /* Ingredients, then the method, in one scroll. */
   .recipe-detail-layout {
     display: block;
+    margin-top: 24px;
     padding-top: 22px;
   }
 
@@ -7871,6 +8076,28 @@ input[type="checkbox"] {
     font-size: 1rem;
   }
 
+  /* Which lines the kitchen stock can't cover. */
+  .ingredient-checklist label:has(.ingredient-stock-flag) {
+    grid-template-columns: 24px 62px minmax(0, 1fr) auto;
+  }
+
+  .ingredient-stock-flag {
+    background: var(--danger-soft);
+    border-radius: 999px;
+    color: var(--danger-ink);
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
+
+  .ingredient-stock-flag.is-short {
+    background: var(--panel);
+    color: var(--muted);
+  }
+
   /* --- Groceries --- */
   .groceries-header {
     gap: 20px;
@@ -7907,6 +8134,9 @@ input[type="checkbox"] {
     border-radius: 999px;
     font-size: 1rem;
     min-height: 48px;
+    /* The desktop 24px side padding truncated "Open Walmart" at phone widths. */
+    padding: 10px 12px;
+    white-space: nowrap;
     width: 100%;
   }
 
@@ -8803,4 +9033,391 @@ input[type="checkbox"] {
   background: var(--card);
   box-shadow: 0 1px 4px rgba(45, 40, 64, 0.14);
   color: var(--accent);
+}
+
+/* ---- Toast ------------------------------------------------------------------ */
+.app-toast {
+  align-items: center;
+  background: var(--ink);
+  border-radius: 999px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 8px 24px rgba(45, 40, 64, 0.24);
+  color: var(--card);
+  display: flex;
+  font-size: 0.92rem;
+  font-weight: 600;
+  gap: 10px;
+  left: 50%;
+  max-width: calc(100vw - 32px);
+  opacity: 0;
+  padding: 12px 20px 12px 14px;
+  pointer-events: none;
+  position: fixed;
+  transform: translate(-50%, 12px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 300;
+}
+
+.app-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.app-toast-icon {
+  align-items: center;
+  background: var(--mint);
+  border-radius: 50%;
+  color: var(--mint-ink);
+  display: inline-flex;
+  flex: none;
+  font-size: 0.75rem;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+/* Clear the phone tab bar / action bar. */
+@media (max-width: 680px) {
+  .app-toast {
+    bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-toast {
+    transition: none;
+  }
+}
+
+/* ---- Ingredient index: search, category chips, aisle sections --------------- */
+.ingredient-search input {
+  width: 100%;
+}
+
+.ingredient-filters {
+  margin-top: 0;
+}
+
+.ingredient-groups {
+  display: grid;
+  gap: 22px;
+}
+
+.ingredient-group {
+  display: grid;
+  gap: 10px;
+}
+
+.ingredient-group .recipe-category-heading {
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 6px;
+}
+
+.ingredient-group h4 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 400;
+  margin: 0;
+}
+
+.ingredient-group .recipe-category-heading span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+/* On phones the chips scroll sideways instead of wrapping into a tall block. */
+@media (max-width: 680px) {
+  .ingredient-filters {
+    flex-wrap: nowrap;
+    margin-inline: -18px;
+    overflow-x: auto;
+    padding: 2px 18px 4px;
+    scrollbar-width: none;
+  }
+
+  .ingredient-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ingredient-filters .filter-chip {
+    flex: none;
+  }
+}
+
+/* ---- Ingredient page: Save stays on screen while you scroll ----------------- */
+.ingredient-save-button {
+  bottom: 28px;
+  box-shadow: 0 10px 28px rgba(45, 40, 64, 0.22);
+  padding: 14px 28px;
+  position: fixed;
+  right: 32px;
+  z-index: 60;
+}
+
+/* Room at the end of the page so the floating button never covers the last tiles. */
+#ingredients-view {
+  padding-bottom: 88px;
+}
+
+/* Phones: a full-width bar resting just above the bottom tab bar. */
+@media (max-width: 680px) {
+  .ingredient-save-button {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    left: 20px;
+    min-height: 50px;
+    right: 20px;
+  }
+
+  #ingredients-view {
+    padding-bottom: 76px;
+  }
+
+  /* Keep the "added" toast clear of the floating button. */
+  body:has(#ingredients-view.active) .app-toast {
+    bottom: calc(148px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---- Recipe page: label selected step words --------------------------------- */
+.step-label-popover {
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(45, 40, 64, 0.2);
+  padding: 6px;
+  position: fixed;
+  z-index: 250;
+}
+
+.step-label-popover[hidden] {
+  display: none;
+}
+
+.step-label-popover select {
+  font-size: 0.875rem;
+  max-width: min(320px, calc(100vw - 40px));
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+/* ---- Recipe header: favorite + edit as icons in the top-right corner -------- */
+.recipe-hero-icons {
+  display: none;
+}
+
+@media (max-width: 680px) {
+  .recipe-hero-topline {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .recipe-hero-topline .eyebrow {
+    margin: 0;
+  }
+
+  /* Tighter run from the photo, past the category line, into the title. */
+  #recipes-view .recipe-hero {
+    gap: 14px;
+  }
+
+  #recipes-view .recipe-hero-body h2 {
+    margin-top: -2px;
+  }
+
+  .recipe-hero-icons {
+    display: flex;
+    flex: none;
+    gap: 8px;
+  }
+
+  .recipe-hero-icons > button {
+    align-items: center;
+    background: var(--card);
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    display: inline-flex;
+    height: 40px;
+    justify-content: center;
+    min-height: 0;
+    padding: 0;
+    width: 40px;
+  }
+
+  .recipe-hero-icons > .favorite-toggle[aria-pressed="true"] {
+    color: var(--accent);
+  }
+
+  .recipe-hero-icon-button svg {
+    fill: none;
+    height: 18px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+    width: 18px;
+  }
+
+  /* The labelled Favorite and the Edit link below the title are now redundant. */
+  .recipe-hero-actions > .favorite-toggle,
+  .recipe-hero-actions > [data-edit-open-recipe] {
+    display: none;
+  }
+
+  /* With those gone the row only holds Undo, so it takes no space without it. */
+  .recipe-hero-actions:not(:has(> [data-undo-cook])) {
+    margin: 0;
+  }
+}
+
+/* ---- Editor rows: confirm before removing, hold before dragging ------------- */
+.row-remove {
+  position: relative;
+}
+
+.row-remove[data-confirm="true"] {
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+}
+
+/* "Remove?" pill beside the ×; it is part of the button, so tapping it confirms. */
+.row-remove[data-confirm="true"]::after {
+  background: var(--danger-soft);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(45, 40, 64, 0.16);
+  color: var(--danger-ink);
+  content: "Remove?";
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* Held on touch, waiting for the hold to complete. */
+[data-armed="true"] > .drag-handle,
+[data-armed="true"] > .recipe-step-number.drag-handle {
+  background: var(--panel);
+  color: var(--accent);
+  transform: scale(1.18);
+  /* Grows across the whole hold, so it's clear the press is counting down. */
+  transition: transform 0.5s linear;
+}
+
+[data-armed="true"] {
+  transition: box-shadow 0.2s ease;
+  box-shadow: 0 0 0 2px var(--pink-ring);
+  border-radius: 14px;
+}
+
+.app-toast[data-tone="error"] .app-toast-icon {
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-weight: 800;
+}
+
+/* ---- Recipe editor photo (phones): the thumbnail is the photo button -------- */
+@media (max-width: 680px) {
+  .recipe-editor-form .recipe-photo-field {
+    align-items: center;
+    column-gap: 14px;
+    grid-template-columns: 92px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    row-gap: 6px;
+  }
+
+  .recipe-editor-form .recipe-photo-preview {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  /* Change / Remove sit on the thumbnail itself. */
+  .recipe-editor-form .recipe-photo-buttons {
+    align-self: stretch;
+    display: block;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    height: 92px;
+    position: relative;
+    width: 92px;
+  }
+
+  .recipe-editor-form .recipe-photo-button {
+    border-radius: 18px;
+    cursor: pointer;
+    font-size: 0;
+    inset: 0;
+    position: absolute;
+  }
+
+  /* Pencil badge in the corner says "tap to change". */
+  .recipe-editor-form .recipe-photo-button::after {
+    align-items: center;
+    background: var(--card);
+    border-radius: 999px;
+    bottom: 6px;
+    box-shadow: 0 2px 6px rgba(45, 40, 64, 0.22);
+    color: var(--accent);
+    content: "✎";
+    display: flex;
+    font-size: 0.95rem;
+    height: 28px;
+    justify-content: center;
+    position: absolute;
+    right: 6px;
+    width: 28px;
+  }
+
+  .recipe-editor-form #remove-recipe-photo:not([hidden]) {
+    align-items: center;
+    background: var(--card);
+    border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(45, 40, 64, 0.22);
+    color: var(--ink-soft);
+    display: flex;
+    font-size: 0;
+    height: 26px;
+    justify-content: center;
+    min-height: 0;
+    padding: 0;
+    position: absolute;
+    right: -6px;
+    text-decoration: none;
+    top: -6px;
+    width: 26px;
+    z-index: 1;
+  }
+
+  .recipe-editor-form #remove-recipe-photo:not([hidden])::before {
+    content: "×";
+    font-size: 1.05rem;
+    line-height: 1;
+  }
+
+  /* The link box takes the space beside the thumbnail. */
+  .recipe-editor-form .photo-link-row {
+    align-self: center;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    margin: 0;
+  }
+
+  .recipe-editor-form .recipe-photo-hint {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+.ingredient-save-button[hidden] {
+  display: none;
 }
