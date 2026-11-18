@@ -41,3 +41,6 @@ build/
 coverage/
 .cache/
 *.tsbuildinfo
+
+# /walmart-nutrition backups and proposals (household data)
+.claude/nutrition-work/

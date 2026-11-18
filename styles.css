@@ -9669,3 +9669,192 @@ input[type="checkbox"] {
     padding: 0;
   }
 }
+
+/* ---- Ingredient form (phones): pair short fields to save height ------------- */
+@media (max-width: 680px) {
+  /* Five columns: name 3 + category 2, serving size full width, then servings
+     per container 2 + URL 3. Bottom-aligned so a label that wraps to two lines
+     doesn't knock its input out of line with its neighbour. */
+  .ingredient-form-grid {
+    align-items: end;
+    column-gap: 10px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .ingredient-form-grid > label {
+    min-width: 0;
+  }
+
+  .ingredient-form-grid > .ingredient-name-field,
+  .ingredient-form-grid > .ingredient-url-field {
+    grid-column: span 3;
+  }
+
+  .ingredient-form-grid > .ingredient-category-field,
+  .ingredient-form-grid > .ingredient-servings-field {
+    grid-column: span 2;
+  }
+
+  .ingredient-form-grid > .ingredient-serving-field {
+    grid-column: 1 / -1;
+  }
+
+  /* Long category names would otherwise push the select past its column. */
+  .ingredient-category-field select {
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ---- Ingredient list: bulk select (long press a tile) ----------------------- */
+.ingredient-tile {
+  position: relative;
+}
+
+/* Holding a tile selects it; without these, phones select the text or raise
+   their own link menu first. */
+.ingredient-tile-link {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ingredient-tile-check {
+  align-items: center;
+  background: var(--card);
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  color: transparent;
+  display: none;
+  height: 26px;
+  justify-content: center;
+  left: 10px;
+  pointer-events: none;
+  position: absolute;
+  top: 10px;
+  width: 26px;
+  z-index: 1;
+}
+
+.ingredient-tile-check .icon {
+  height: 15px;
+  stroke-width: 3;
+  width: 15px;
+}
+
+.is-bulk-selecting .ingredient-tile-check {
+  display: inline-flex;
+}
+
+.ingredient-tile[data-selected="true"] {
+  border-color: var(--pink-ring);
+  box-shadow: 0 0 0 2px var(--pink-ring);
+}
+
+.ingredient-tile[data-selected="true"] .ingredient-tile-check {
+  background: var(--pink);
+  border-color: var(--pink-ring);
+  color: var(--pink-ink);
+}
+
+/* While picking, a tap selects, so Edit/Delete step aside, and so does the
+   Select chip that started it. */
+.is-bulk-selecting .ingredient-tile-actions,
+.is-bulk-selecting .ingredient-select-chip {
+  display: none;
+}
+
+.ingredient-select-chip {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.ingredient-select-chip .icon {
+  height: 14px;
+  width: 14px;
+}
+
+.ingredient-bulk-bar {
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  bottom: 16px;
+  box-shadow: 0 8px 24px rgba(45, 40, 64, 0.18);
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 8px 8px 16px;
+  position: sticky;
+  z-index: 20;
+}
+
+.ingredient-bulk-bar[hidden] {
+  display: none;
+}
+
+.ingredient-bulk-count {
+  color: var(--ink-soft);
+  flex: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.ingredient-bulk-move {
+  flex: 1;
+  min-width: 0;
+}
+
+.ingredient-bulk-move select {
+  min-height: 40px;
+  text-overflow: ellipsis;
+}
+
+.ingredient-bulk-bar .primary-button {
+  flex: none;
+  min-height: 40px;
+  padding-inline: 16px;
+}
+
+.ingredient-bulk-cancel {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  display: inline-flex;
+  flex: none;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  width: 40px;
+}
+
+.ingredient-bulk-cancel:hover {
+  background: var(--panel-soft);
+  color: var(--ink);
+}
+
+@media (max-width: 680px) {
+  /* Fixed above the tab bar; the floating Save button steps aside meanwhile. */
+  .ingredient-bulk-bar {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    left: 20px;
+    margin: 0;
+    position: fixed;
+    right: 20px;
+  }
+
+  #ingredients-view.is-bulk-selecting {
+    padding-bottom: 140px;
+  }
+
+  #ingredients-view.is-bulk-selecting .ingredient-save-button {
+    display: none;
+  }
+
+  .ingredient-bulk-count {
+    font-size: 0.82rem;
+  }
+}

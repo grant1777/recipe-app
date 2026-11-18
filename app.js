@@ -12,6 +12,15 @@ let ingredientListShown = INGREDIENT_BATCH_SIZE;
 let ingredientListViewKey = null;
 let ingredientListObserver = null;
 
+// Bulk mode on the ingredient list: a long press (or the Select chip) starts it,
+// taps then pick tiles instead of opening their Walmart links, and the bar
+// moves every picked ingredient into one category.
+let ingredientBulkMode = false;
+const ingredientBulkSelection = new Set();
+const INGREDIENT_LONG_PRESS_MS = 500;
+// The bulk bar's "Move to..." placeholder; "" is a real choice (Auto).
+const INGREDIENT_BULK_CHOOSE = "__choose";
+
 const PHOTO_DECODE_TIMEOUT = 20000;
 const PHOTO_UPLOAD_TIMEOUT = 60000;
 const PHOTO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
@@ -927,7 +936,11 @@ function activateAppView(viewName, activeTab = viewName) {
     if (viewName === "settings") button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  if (viewName !== "ingredients") document.getElementById("back-to-recipe-editor").hidden = true;
+  if (viewName !== "ingredients") {
+    document.getElementById("back-to-recipe-editor").hidden = true;
+    // A half-made selection shouldn't be waiting on return.
+    exitIngredientBulkMode();
+  }
   syncRoute();
 }
 
@@ -1672,6 +1685,7 @@ function renderRecipes() {
     detail.hidden = false;
     detail.innerHTML = recipeDetailMarkup(selectedRecipe);
     setupCloudImageDiagnostics(detail);
+    watchRecipeTitleFit(detail.querySelector(".recipe-hero-body h2"));
     detail.querySelector("[data-back-to-recipes]").addEventListener("click", () => {
       openRecipeId = null;
       renderRecipes();
@@ -1936,6 +1950,49 @@ function recipeScaleMarkup(recipe) {
         .map((option) => `<button class="recipe-scale-option" type="button" data-recipe-scale="${option.value}" aria-pressed="${option.value === current}">${option.label}</button>`)
         .join("")}
     </div>`;
+}
+
+// Recipe titles try to stay on one line: a title that would wrap is shrunk just
+// enough to fit, saving a line of height on phones. Below 60% of the normal size
+// (or 22px) it would get hard to read, so a very long title wraps at that size.
+const RECIPE_TITLE_MIN_SCALE = 0.6;
+const RECIPE_TITLE_MIN_PX = 22;
+let recipeTitleObserver = null;
+
+function fitRecipeTitle(title) {
+  if (!title?.isConnected) return;
+  title.style.fontSize = "";
+  title.style.whiteSpace = "nowrap";
+  const available = title.clientWidth;
+  // Hidden (another tab is showing): the observer re-fits once it has a width.
+  if (!available) {
+    title.style.whiteSpace = "";
+    return;
+  }
+  const needed = title.scrollWidth;
+  if (needed <= available) return;
+
+  const base = parseFloat(getComputedStyle(title).fontSize);
+  const min = Math.max(base * RECIPE_TITLE_MIN_SCALE, RECIPE_TITLE_MIN_PX);
+  // Text width scales with font size; the small margin covers rounding.
+  const fitted = Math.floor(base * (available / needed) * 0.98 * 2) / 2;
+  if (fitted >= min) {
+    title.style.fontSize = `${fitted}px`;
+  } else {
+    title.style.fontSize = `${min}px`;
+    title.style.whiteSpace = "";
+  }
+}
+
+function watchRecipeTitleFit(title) {
+  recipeTitleObserver?.disconnect();
+  if (!title) return;
+  // Fires when the title first gets a width (tab shown) and on every resize;
+  // the fit only changes its height, so it can't trigger itself.
+  recipeTitleObserver = new ResizeObserver(() => fitRecipeTitle(title));
+  recipeTitleObserver.observe(title);
+  // Gloock is wider than the fallback font, so measure again once it loads.
+  document.fonts?.ready.then(() => fitRecipeTitle(title));
 }
 
 function recipeDetailMarkup(savedRecipe) {
@@ -3296,7 +3353,7 @@ function ingredientCategory(ingredient) {
 function populateIngredientCategorySelect() {
   const select = document.getElementById("ingredient-category");
   if (!select || select.options.length) return;
-  select.innerHTML = `<option value="">Auto (from name)</option>${ingredientCategories
+  select.innerHTML = `<option value="">Auto</option>${ingredientCategories
     .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
     .join("")}`;
 }
@@ -3323,8 +3380,11 @@ function renderIngredients() {
     ...present.map(
       (category) =>
         `<button class="filter-chip" type="button" data-ingredient-category="${escapeHtml(category)}" aria-pressed="${ingredientCategoryFilter === category}">${escapeHtml(category)}</button>`
-    )
+    ),
+    // Long press is the quick way in; this is the way in without a touchscreen.
+    `<button class="filter-chip ingredient-select-chip" type="button" data-ingredient-bulk-start>${icon("check")} Select</button>`
   ].join("");
+  filters.querySelector("[data-ingredient-bulk-start]").addEventListener("click", () => enterIngredientBulkMode());
   filters.querySelectorAll("[data-ingredient-category]").forEach((chip) => {
     chip.addEventListener("click", () => {
       ingredientCategoryFilter = chip.dataset.ingredientCategory;
@@ -3395,6 +3455,7 @@ function renderIngredients() {
       const tile = holder.firstElementChild;
       group.querySelector(".mapping-list").append(tile);
       bindIngredientTile(tile);
+      syncIngredientTileSelection(tile);
       setupCloudImageDiagnostics(tile);
     });
     drawn += batch.length;
@@ -3415,6 +3476,11 @@ function renderIngredients() {
   };
 
   drawUpTo(target);
+  // Deleted (or renamed) ingredients drop out of a bulk selection.
+  [...ingredientBulkSelection].forEach((key) => {
+    if (!state.ingredients[key]) ingredientBulkSelection.delete(key);
+  });
+  syncIngredientBulkBar();
   if (drawn < ordered.length) {
     // Draw the next batch a screen or so before the user reaches the end.
     ingredientListObserver = new IntersectionObserver(
@@ -3427,7 +3493,162 @@ function renderIngredients() {
   }
 }
 
+function bindIngredientTileBulk(tile) {
+  const key = tile.dataset.ingredientKey;
+  let timer = null;
+  let start = null;
+  let longPressed = false;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+
+  tile.addEventListener("pointerdown", (event) => {
+    // Edit/Delete keep their own taps; a right click keeps the browser menu.
+    if (event.button !== 0 || event.target.closest(".ingredient-tile-actions")) return;
+    longPressed = false;
+    start = { x: event.clientX, y: event.clientY };
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      longPressed = true;
+      navigator.vibrate?.(10);
+      if (!ingredientBulkMode) enterIngredientBulkMode();
+      ingredientBulkSelection.add(key);
+      syncIngredientBulkBar();
+    }, INGREDIENT_LONG_PRESS_MS);
+  });
+  // A scroll or drag is not a press.
+  tile.addEventListener("pointermove", (event) => {
+    if (timer && start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) cancel();
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((type) => tile.addEventListener(type, cancel));
+  // Phones raise their own long-press menu (open link, copy...) on the tile's link.
+  tile.addEventListener("contextmenu", (event) => {
+    if (timer || longPressed || ingredientBulkMode) event.preventDefault();
+  });
+
+  // Capture phase, so in bulk mode a tap picks the tile instead of opening its link.
+  tile.addEventListener(
+    "click",
+    (event) => {
+      if (event.target.closest(".ingredient-tile-actions")) return;
+      if (longPressed) {
+        // The click that ends the long press already selected the tile.
+        longPressed = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (!ingredientBulkMode) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleIngredientBulkSelection(key);
+    },
+    true
+  );
+  // Plain tiles (no link) aren't focusable on their own; in bulk mode Space or
+  // Enter on a focused tile toggles it.
+  tile.addEventListener("keydown", (event) => {
+    if (!ingredientBulkMode || event.target.closest(".ingredient-tile-actions")) return;
+    if (event.key === " " || (event.key === "Enter" && !event.target.closest("a"))) {
+      event.preventDefault();
+      toggleIngredientBulkSelection(key);
+    }
+  });
+}
+
+function enterIngredientBulkMode() {
+  ingredientBulkMode = true;
+  syncIngredientBulkBar();
+}
+
+function exitIngredientBulkMode() {
+  if (!ingredientBulkMode && !ingredientBulkSelection.size) return;
+  ingredientBulkMode = false;
+  ingredientBulkSelection.clear();
+  syncIngredientBulkBar();
+}
+
+function toggleIngredientBulkSelection(key) {
+  if (ingredientBulkSelection.has(key)) ingredientBulkSelection.delete(key);
+  else ingredientBulkSelection.add(key);
+  syncIngredientBulkBar();
+}
+
+function syncIngredientTileSelection(tile) {
+  const selected = ingredientBulkMode && ingredientBulkSelection.has(tile.dataset.ingredientKey);
+  tile.dataset.selected = String(selected);
+  const surface = tile.querySelector(".ingredient-tile-link");
+  if (!surface) return;
+  if (ingredientBulkMode) {
+    surface.setAttribute("aria-pressed", String(selected));
+    if (surface.classList.contains("is-plain")) {
+      surface.setAttribute("role", "button");
+      surface.tabIndex = 0;
+    }
+  } else {
+    surface.removeAttribute("aria-pressed");
+    if (surface.classList.contains("is-plain")) {
+      surface.removeAttribute("role");
+      surface.removeAttribute("tabindex");
+    }
+  }
+}
+
+function syncIngredientBulkBar() {
+  const view = document.getElementById("ingredients-view");
+  const bar = document.getElementById("ingredient-bulk-bar");
+  if (!view || !bar) return;
+  view.classList.toggle("is-bulk-selecting", ingredientBulkMode);
+  bar.hidden = !ingredientBulkMode;
+  const count = ingredientBulkSelection.size;
+  document.getElementById("ingredient-bulk-count").textContent = count ? `${count} selected` : "Tap to select";
+  const select = document.getElementById("ingredient-bulk-category");
+  document.getElementById("ingredient-bulk-apply").disabled = !count || select.value === INGREDIENT_BULK_CHOOSE;
+  document.querySelectorAll("#ingredient-list .ingredient-tile").forEach(syncIngredientTileSelection);
+}
+
+function setupIngredientBulkBar() {
+  const select = document.getElementById("ingredient-bulk-category");
+  if (!select) return;
+  // Every option passes the placeholder as "selected": the default "" would
+  // otherwise preselect Auto, whose value is "".
+  select.innerHTML = [
+    optionMarkup(INGREDIENT_BULK_CHOOSE, "Move to…", INGREDIENT_BULK_CHOOSE, " disabled"),
+    ...ingredientCategories.map((category) => optionMarkup(category, category, INGREDIENT_BULK_CHOOSE)),
+    optionMarkup("", "Auto (from name)", INGREDIENT_BULK_CHOOSE)
+  ].join("");
+  select.addEventListener("change", syncIngredientBulkBar);
+  document.getElementById("ingredient-bulk-cancel").innerHTML = icon("x");
+  document.getElementById("ingredient-bulk-cancel").addEventListener("click", exitIngredientBulkMode);
+  document.getElementById("ingredient-bulk-apply").addEventListener("click", applyIngredientBulkCategory);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && ingredientBulkMode && !document.querySelector("dialog[open]")) exitIngredientBulkMode();
+  });
+}
+
+function applyIngredientBulkCategory() {
+  const select = document.getElementById("ingredient-bulk-category");
+  const category = select.value;
+  if (category === INGREDIENT_BULK_CHOOSE || !ingredientBulkSelection.size || !requireCloudWrite()) return;
+  let moved = 0;
+  ingredientBulkSelection.forEach((key) => {
+    const ingredient = state.ingredients[key];
+    if (!ingredient) return;
+    // "" means Auto: the category is guessed from the name again.
+    ingredient.category = category;
+    moved += 1;
+  });
+  select.value = INGREDIENT_BULK_CHOOSE;
+  exitIngredientBulkMode();
+  saveState();
+  renderAll();
+  showToast(`Moved ${moved} ingredient${moved === 1 ? "" : "s"} to ${category || "Auto"}`);
+}
+
 function bindIngredientTile(tile) {
+  bindIngredientTileBulk(tile);
   tile.querySelector("[data-edit-ingredient]")?.addEventListener("click", (event) => {
     fillIngredientForm(state.ingredients[event.currentTarget.dataset.editIngredient]);
   });
@@ -3951,7 +4172,8 @@ function ingredientTile(ingredient) {
     : `<span class="ingredient-tile-link is-plain">${body}</span>`;
 
   return `
-    <article class="ingredient-tile">
+    <article class="ingredient-tile" data-ingredient-key="${escapeHtml(ingredient.key)}">
+      <span class="ingredient-tile-check" aria-hidden="true">${icon("check")}</span>
       ${surface}
       <div class="ingredient-tile-actions">
         <button class="secondary-button" data-edit-ingredient="${escapeHtml(ingredient.key)}" type="button">Edit</button>
@@ -4356,6 +4578,7 @@ function renderAll() {
 function setupForms() {
   populateNutrientInputs();
   populateIngredientCategorySelect();
+  setupIngredientBulkBar();
   setupStepLabelling();
   document.getElementById("ingredient-search").addEventListener("input", renderIngredients);
   populateServingUnits();
@@ -4489,9 +4712,25 @@ function setupForms() {
     openRecipeFormSection("recipe-ingredients-body");
     addRecipeIngredientRow();
   });
-  document.getElementById("add-recipe-step").addEventListener("click", () => {
+  // The step being worked on when "Add step" is pressed. Pressing the button moves
+  // focus to it, so remember the last step that had focus; focusing anything
+  // other than the button forgets it, so an old edit doesn't steer new steps.
+  let activeStepRow = null;
+  const addStepButton = document.getElementById("add-recipe-step");
+  document.getElementById("recipe-form").addEventListener("focusin", (event) => {
+    if (event.target === addStepButton) return;
+    activeStepRow = event.target.closest?.(".recipe-step-row") || null;
+  });
+
+  addStepButton.addEventListener("click", () => {
     openRecipeFormSection("recipe-steps-body");
-    addRecipeStepRow();
+    const after = activeStepRow?.isConnected ? activeStepRow : null;
+    const row = addRecipeStepRow("", { after });
+    // The new step can land below the fold or behind the phone action bar, so
+    // bring it into view and start typing there.
+    // Centered rather than "nearest" so the fixed bar can't cover it.
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.querySelector(".recipe-step-input")?.focus({ preventScroll: true });
   });
   document.querySelectorAll("#recipe-form .section-toggle").forEach((toggle) => {
     toggle.addEventListener("click", () => {
@@ -4738,7 +4977,8 @@ function refreshStepHighlights() {
   stepHighlightRenderers.forEach((render) => render());
 }
 
-function addRecipeStepRow(value = "") {
+// `after`: insert right below that step row instead of at the end.
+function addRecipeStepRow(value = "", { after = null } = {}) {
   const container = document.getElementById("recipe-step-rows");
   const row = document.createElement("div");
   row.className = "recipe-step-row";
@@ -4778,9 +5018,11 @@ function addRecipeStepRow(value = "") {
       updateRecipeStepNumbers();
     }
   });
-  container.append(row);
+  if (after?.parentElement === container) after.after(row);
+  else container.append(row);
   makeRowsSortable(container, { item: ".recipe-step-row", onReorder: updateRecipeStepNumbers });
   updateRecipeStepNumbers();
+  return row;
 }
 
 const untagStepValue = "__untag__";
@@ -5423,6 +5665,8 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
   let row = null;
   let pointerId = null;
   let basePointerY = 0;
+  let pointerY = 0;
+  let scrollFrame = null;
   // Every drag (touch or mouse) starts only after a long press on the handle,
   // so a scroll, a stray tap or a quick swipe never reorders anything.
   let pending = null;
@@ -5439,10 +5683,61 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
     basePointerY = y;
     row.dataset.dragging = "true";
     container.dataset.dragging = "true";
+    pointerY = y;
+    scrollFrame = requestAnimationFrame(autoScroll);
+  };
+
+  // Follow the pointer and swap past any neighbour whose middle it crosses.
+  const updateDrag = (clientY) => {
+    row.style.transform = `translateY(${clientY - basePointerY}px)`;
+
+    const rect = row.getBoundingClientRect();
+    const centre = rect.top + rect.height / 2;
+    const reference = [...container.children].find(
+      (child) => child !== row && child.matches(item) && centre < child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2
+    ) || null;
+    if (reference === row.nextElementSibling) return;
+
+    // Re-anchor the drag so the row stays under the pointer after it moves.
+    const visualTop = rect.top;
+    if (reference) container.insertBefore(row, reference);
+    else container.append(row);
+    row.style.transform = "";
+    const offset = visualTop - row.getBoundingClientRect().top;
+    basePointerY = clientY - offset;
+    row.style.transform = `translateY(${offset}px)`;
+  };
+
+  // Holding a row near the top or bottom of the screen scrolls the page, faster
+  // the closer to the edge, so step 7 can be carried all the way up to step 1.
+  // The bottom zone is taller on phones, where a fixed action bar covers the edge.
+  const autoScroll = () => {
+    if (!row) return;
+    const edge = 90;
+    const bottomInset = window.matchMedia("(max-width: 680px)").matches ? 96 : 0;
+    const top = pointerY - edge;
+    const bottom = window.innerHeight - bottomInset - edge - pointerY;
+    let speed = 0;
+    if (top < 0) speed = -Math.min(18, Math.ceil(-top / 5));
+    else if (bottom < 0) speed = Math.min(18, Math.ceil(-bottom / 5));
+    if (speed) {
+      const before = window.scrollY;
+      window.scrollBy(0, speed);
+      const moved = window.scrollY - before;
+      if (moved) {
+        // The row scrolled with the page; shift its anchor so it stays under
+        // the pointer, then let it swap past whatever it now overlaps.
+        basePointerY -= moved;
+        updateDrag(pointerY);
+      }
+    }
+    scrollFrame = requestAnimationFrame(autoScroll);
   };
 
   const stop = () => {
     cancelPending();
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = null;
     if (!row) return;
     row.style.transform = "";
     delete row.dataset.dragging;
@@ -5484,23 +5779,8 @@ function makeRowsSortable(container, { handle = ".drag-handle", item, onReorder 
     }
     if (!row || event.pointerId !== pointerId) return;
     event.preventDefault();
-    row.style.transform = `translateY(${event.clientY - basePointerY}px)`;
-
-    const rect = row.getBoundingClientRect();
-    const centre = rect.top + rect.height / 2;
-    const reference = [...container.children].find(
-      (child) => child !== row && child.matches(item) && centre < child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2
-    ) || null;
-    if (reference === row.nextElementSibling) return;
-
-    // Re-anchor the drag so the row stays under the pointer after it moves.
-    const visualTop = rect.top;
-    if (reference) container.insertBefore(row, reference);
-    else container.append(row);
-    row.style.transform = "";
-    const offset = visualTop - row.getBoundingClientRect().top;
-    basePointerY = event.clientY - offset;
-    row.style.transform = `translateY(${offset}px)`;
+    pointerY = event.clientY;
+    updateDrag(event.clientY);
   });
 
   container.addEventListener("pointerup", stop);

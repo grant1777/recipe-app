@@ -41,7 +41,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261117-6" />
+    <link rel="stylesheet" href="styles.css?v=20261117-8" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -93,11 +93,11 @@
         </div>
         <nav class="tabs" aria-label="Primary">
           <button class="tab-button active" data-tab="planner" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-calendar-days" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/></svg></span><span>Plan</span></button>
+          <button class="tab-button" data-tab="ingredients" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-carrot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.27 21.7s9.87-3.5 12.73-6.36a4.5 4.5 0 0 0-6.36-6.37C5.77 11.84 2.27 21.7 2.27 21.7zM8.64 14l-2.05-2.04M15.34 15l-2.46-2.46"/><path d="M22 9s-1.33-2-3.5-2C16.86 7 15 9 15 9s1.33 2 3.5 2S22 9 22 9z"/><path d="M15 2s-2 1.33-2 3.5S15 9 15 9s2-1.84 2-3.5C17 3.33 15 2 15 2z"/></svg></span><span>Ingredients</span></button>
           <button class="tab-button" data-tab="recipes" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-book-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></span><span>Recipes</span></button>
           <button class="tab-button" data-tab="groceries" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-shopping-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg></span><span>Groceries</span></button>
           <button class="tab-action" id="log-cooked" type="button" aria-label="Log a cooked recipe"><svg class="icon icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="tab-action-label" aria-hidden="true">Log a cooked meal</span></button>
           <button class="tab-button" data-tab="kitchen-stock" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-shopping-basket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 11-1 9"/><path d="m19 11-4-7"/><path d="M2 11h20"/><path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6l1.7-7.4"/><path d="M4.5 15.5h15"/><path d="m5 11 4-7"/><path d="m9 11 1 9"/></svg></span><span>Pantry</span></button>
-          <button class="tab-button" data-tab="ingredients" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-carrot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.27 21.7s9.87-3.5 12.73-6.36a4.5 4.5 0 0 0-6.36-6.37C5.77 11.84 2.27 21.7 2.27 21.7zM8.64 14l-2.05-2.04M15.34 15l-2.46-2.46"/><path d="M22 9s-1.33-2-3.5-2C16.86 7 15 9 15 9s1.33 2 3.5 2S22 9 22 9z"/><path d="M15 2s-2 1.33-2 3.5S15 9 15 9s2-1.84 2-3.5C17 3.33 15 2 15 2z"/></svg></span><span>Ingredients</span></button>
           <button class="tab-button nutrition-only" data-tab="macros" type="button"><span class="tab-icon" aria-hidden="true"><svg class="icon icon-chart-no-axes-column" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span><span>Nutrition</span></button>
         </nav>
         <button class="sidebar-avatar-button" id="sidebar-open-settings" type="button" aria-label="Open settings" title="Settings"><span class="member-avatar header-avatar" data-current-member-avatar aria-hidden="true"></span></button>
@@ -342,15 +342,15 @@
 
           <form class="recipe-form" id="ingredient-form">
             <div class="form-grid ingredient-form-grid">
-              <label>
+              <label class="ingredient-name-field">
                 Ingredient name
                 <input id="ingredient-name" required placeholder="Chicken breast" />
               </label>
-              <label>
+              <label class="ingredient-category-field">
                 Category
                 <select id="ingredient-category"></select>
               </label>
-              <label>
+              <label class="ingredient-serving-field">
                 Serving size
                 <div class="serving-size-inputs">
                   <input id="ingredient-serving-amount" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" placeholder="1 1/2" value="1" />
@@ -358,11 +358,11 @@
                 </div>
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
-              <label>
+              <label class="ingredient-servings-field">
                 Servings per container
                 <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
               </label>
-              <label>
+              <label class="ingredient-url-field">
                 Walmart product URL
                 <input id="ingredient-url" placeholder="https://www.walmart.com/ip/..." type="url" />
               </label>
@@ -405,6 +405,16 @@
             </label>
             <div class="recipe-filters ingredient-filters" id="ingredient-filters"></div>
             <div class="ingredient-groups" id="ingredient-list"></div>
+            <!-- Bulk mode: shown after a long press on a tile (or the Select chip). -->
+            <div class="ingredient-bulk-bar" id="ingredient-bulk-bar" role="toolbar" aria-label="Move selected ingredients" hidden>
+              <span class="ingredient-bulk-count" id="ingredient-bulk-count" aria-live="polite">Tap to select</span>
+              <label class="ingredient-bulk-move">
+                <span class="visually-hidden">Category for the selected ingredients</span>
+                <select id="ingredient-bulk-category"></select>
+              </label>
+              <button class="primary-button" id="ingredient-bulk-apply" type="button" disabled>Move</button>
+              <button class="ingredient-bulk-cancel" id="ingredient-bulk-cancel" type="button" aria-label="Cancel selecting" title="Cancel"></button>
+            </div>
           </div>
         </section>
 
@@ -779,6 +789,6 @@
     <script src="firebase-config.js?v=20260825-5"></script>
     <script src="receipt-import.js?v=20261007-37"></script>
     <script src="icons.js?v=20261117-1"></script>
-    <script src="app.js?v=20261117-6"></script>
+    <script src="app.js?v=20261117-14"></script>
   </body>
 </html>
