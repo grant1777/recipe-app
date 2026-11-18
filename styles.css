@@ -2131,6 +2131,11 @@ body.hide-nutrition .nutrition-only {
   min-width: 0;
   overflow: hidden;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  /* Large pantries/ingredient lists hold dozens of photo tiles; skipping layout
+     and paint for off-screen ones keeps scrolling smooth on phones. `auto`
+     remembers each tile's real height once it has rendered. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 340px;
 }
 
 .ingredient-tile:hover,
@@ -9058,6 +9063,9 @@ input[type="checkbox"] {
   gap: 10px;
   left: 50%;
   max-width: calc(100vw - 32px);
+  /* With left: 50% the shrink-to-fit width only gets half the screen, so names
+     wrapped early. Size to the text and let max-width decide when to wrap. */
+  width: max-content;
   opacity: 0;
   padding: 12px 20px 12px 14px;
   pointer-events: none;
@@ -9110,6 +9118,13 @@ input[type="checkbox"] {
 .ingredient-groups {
   display: grid;
   gap: 22px;
+}
+
+/* Invisible marker after the last drawn tile; reaching it draws the next batch.
+   The negative margin cancels the grid gap so it adds no space. */
+.ingredient-list-sentinel {
+  height: 1px;
+  margin-top: -22px;
 }
 
 .ingredient-group {
@@ -9184,8 +9199,9 @@ input[type="checkbox"] {
     padding-bottom: 76px;
   }
 
-  /* Keep the "added" toast clear of the floating button. */
-  body:has(#ingredients-view.active) .app-toast {
+  /* Keep the toast clear of the floating button, but only while it shows —
+     it hides after a save, and the toast should then drop to its usual spot. */
+  body:has(#ingredients-view.active .ingredient-save-button:not([hidden])) .app-toast {
     bottom: calc(148px + env(safe-area-inset-bottom));
   }
 }

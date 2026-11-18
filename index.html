@@ -41,7 +41,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261117-2" />
+    <link rel="stylesheet" href="styles.css?v=20261117-6" />
   </head>
   <body>
     <section class="auth-gate" id="signed-out-panel" aria-labelledby="login-title">
@@ -359,11 +359,7 @@
                 <input class="serving-unit-custom" hidden id="ingredient-serving-unit-other" placeholder="Custom unit" />
               </label>
               <label>
-                Sold as
-                <select id="ingredient-container-unit"></select>
-              </label>
-              <label>
-                Servings per <span id="ingredient-container-unit-label">container</span>
+                Servings per container
                 <input id="ingredient-servings-per-container" required type="text" inputmode="text" autocomplete="off" pattern="[0-9¼-¾⅐-⅞\/ .]+" title="Whole numbers or fractions, like 2, 1 1/2, or 3/4" value="1" />
               </label>
               <label>
@@ -783,6 +779,6 @@
     <script src="firebase-config.js?v=20260825-5"></script>
     <script src="receipt-import.js?v=20261007-37"></script>
     <script src="icons.js?v=20261117-1"></script>
-    <script src="app.js?v=20261117-2"></script>
+    <script src="app.js?v=20261117-6"></script>
   </body>
 </html>

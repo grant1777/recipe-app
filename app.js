@@ -4,6 +4,14 @@ const TAKEOUT_PREFIX = "takeout:";
 const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
 const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
+
+// Large ingredient lists are drawn in batches as the user scrolls: building and
+// painting every photo tile up front made the page slow to appear on phones.
+const INGREDIENT_BATCH_SIZE = 16;
+let ingredientListShown = INGREDIENT_BATCH_SIZE;
+let ingredientListViewKey = null;
+let ingredientListObserver = null;
+
 const PHOTO_DECODE_TIMEOUT = 20000;
 const PHOTO_UPLOAD_TIMEOUT = 60000;
 const PHOTO_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
@@ -174,15 +182,6 @@ const measurementAliases = {
 };
 
 const customServingUnit = "__other__";
-
-// How an ingredient is actually sold. The stored measure stays "container" so
-// existing recipes keep working; this only changes the word people read.
-const containerUnits = ["container", "can", "box", "bag", "bottle", "jar", "package", "carton", "pack", "jug", "tub", "bunch"];
-
-function containerUnit(source) {
-  const value = normalizeMeasurementUnit(source?.containerUnit);
-  return containerUnits.includes(value) ? value : "container";
-}
 
 const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
 
@@ -389,7 +388,6 @@ function normalizeIngredientCatalog(value) {
           serving: item.serving || "1 serving",
           ...nutrientValues(item),
           servingsPerContainer: servingsPerContainer(item),
-          containerUnit: containerUnit(item),
           // Optional: no link stays empty, and the grocery list falls back to a
           // Walmart search for the name (a filled-in search URL would read as "linked").
           url: typeof item.url === "string" ? item.url.trim() : "",
@@ -2408,7 +2406,7 @@ function normalizeMeasurementUnit(unit) {
 // Word units read naturally in the plural ("2 eggs"); abbreviations never do ("2 g").
 const pluralizableUnits = new Set([
   "piece", "slice", "serving", "can", "package", "scoop", "clove", "egg", "cup",
-  ...containerUnits
+  "container", "box", "bag", "bottle", "jar", "carton", "pack", "jug", "tub", "bunch"
 ]);
 
 function pluralizeUnit(unit, quantity) {
@@ -2509,10 +2507,6 @@ function recipeItemContainerCount(item, ingredient) {
   return item?.measure === "container" ? quantity : containersForServings(quantity, ingredient?.servingsPerContainer);
 }
 
-function formatContainers(containers, source) {
-  return amountParts(roundTo(containers, 2), containerUnit(source)).text;
-}
-
 function roundTo(value, places) {
   const factor = 10 ** places;
   return Math.round(Number(value || 0) * factor) / factor;
@@ -2590,7 +2584,7 @@ function recipeIngredientAmount(item, ingredient) {
 function recipeIngredientAmountParts(item, ingredient) {
   const quantity = Number(item.quantity || 0);
   if (item.measure === "container") {
-    return amountParts(quantity, containerUnit(ingredient));
+    return amountParts(quantity, "container");
   }
   if (item.measure && item.measure !== "serving") {
     return amountParts(quantity, item.measure);
@@ -2654,7 +2648,7 @@ function renderGroceries() {
           const stocked = stockedFor(item.key, item.name);
           const notes = [
             [...item.from].join(", "),
-            containers ? `buy ${Math.ceil(containers)} ${pluralizeUnit(containerUnit(ingredient), Math.ceil(containers))}` : "",
+            containers ? `buy ${Math.ceil(containers)} ${pluralizeUnit("container", Math.ceil(containers))}` : "",
             stocked ? `${kitchenStockAmountText(stocked)} in your kitchen` : ""
           ].filter(Boolean);
           const isChecked = checked.has(item.key);
@@ -3352,42 +3346,118 @@ function renderIngredients() {
     return;
   }
 
-  list.innerHTML = ingredientCategories
-    .map((category) => {
-      const items = ingredients.filter((ingredient) => ingredientCategory(ingredient) === category);
-      if (!items.length) return "";
-      return `
-        <section class="ingredient-group">
-          <header class="recipe-category-heading">
-            <h4>${escapeHtml(category)}</h4>
-            <span>${items.length}</span>
-          </header>
-          <div class="mapping-list">${items.map(ingredientTile).join("")}</div>
-        </section>`;
-    })
-    .join("");
-  setupCloudImageDiagnostics(list);
-
-  list.querySelectorAll("[data-edit-ingredient]").forEach((button) => {
-    button.addEventListener("click", () => fillIngredientForm(state.ingredients[button.dataset.editIngredient]));
+  // Tiles go in aisle order; each category heading still shows its full count
+  // even while only part of that aisle has been drawn.
+  const ordered = ingredientCategories.flatMap((category) => ingredients.filter((ingredient) => ingredientCategory(ingredient) === category));
+  const totals = new Map();
+  ordered.forEach((ingredient) => {
+    const category = ingredientCategory(ingredient);
+    totals.set(category, (totals.get(category) || 0) + 1);
   });
 
-  list.querySelectorAll("[data-delete-ingredient]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!requireCloudWrite()) return;
-      const key = button.dataset.deleteIngredient;
-      const inUse = state.recipes.some((recipe) => recipe.ingredients?.some((item) => typeof item === "object" && item.key === key));
-      if (inUse) {
-        setAuthMessage("This ingredient is used by a recipe and cannot be deleted.");
-        return;
-      }
+  // A new search or filter starts from the top; anything else (a save, a delete)
+  // redraws at least as many tiles as were showing, so the page doesn't shrink
+  // under the user and jump their scroll position.
+  const viewKey = `${ingredientCategoryFilter}|${terms.join(" ")}`;
+  if (viewKey !== ingredientListViewKey) {
+    ingredientListViewKey = viewKey;
+    ingredientListShown = INGREDIENT_BATCH_SIZE;
+  }
+  const target = Math.max(INGREDIENT_BATCH_SIZE, ingredientListShown);
 
-      if (state.ingredients[key]?.imagePath) void deleteStoredImage(state.ingredients[key].imagePath);
-      delete state.ingredients[key];
-      saveState();
-      renderAll();
-      refreshRecipeMacroPreview();
+  ingredientListObserver?.disconnect();
+  list.innerHTML = "";
+  let drawn = 0;
+  const sentinel = document.createElement("div");
+  sentinel.className = "ingredient-list-sentinel";
+  sentinel.setAttribute("aria-hidden", "true");
+
+  const drawUpTo = (count) => {
+    const batch = ordered.slice(drawn, count);
+    if (!batch.length) return;
+    let group = list.querySelector(":scope > .ingredient-group:last-of-type");
+    batch.forEach((ingredient) => {
+      const category = ingredientCategory(ingredient);
+      if (group?.dataset.category !== category) {
+        group = document.createElement("section");
+        group.className = "ingredient-group";
+        group.dataset.category = category;
+        group.innerHTML = `
+          <header class="recipe-category-heading">
+            <h4>${escapeHtml(category)}</h4>
+            <span>${totals.get(category)}</span>
+          </header>
+          <div class="mapping-list"></div>`;
+        list.append(group);
+      }
+      const holder = document.createElement("div");
+      holder.innerHTML = ingredientTile(ingredient);
+      const tile = holder.firstElementChild;
+      group.querySelector(".mapping-list").append(tile);
+      bindIngredientTile(tile);
+      setupCloudImageDiagnostics(tile);
     });
+    drawn += batch.length;
+    ingredientListShown = Math.max(ingredientListShown, drawn);
+    // Keep the sentinel last so it trails the newest tiles.
+    if (drawn < ordered.length) {
+      list.append(sentinel);
+      // An observer only reports changes, so if the sentinel is still on screen
+      // after this batch (a tall screen), re-observing asks again.
+      if (ingredientListObserver) {
+        ingredientListObserver.unobserve(sentinel);
+        ingredientListObserver.observe(sentinel);
+      }
+    } else {
+      sentinel.remove();
+      ingredientListObserver?.disconnect();
+    }
+  };
+
+  drawUpTo(target);
+  if (drawn < ordered.length) {
+    // Draw the next batch a screen or so before the user reaches the end.
+    ingredientListObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) drawUpTo(drawn + INGREDIENT_BATCH_SIZE);
+      },
+      { rootMargin: "0px 0px 800px 0px" }
+    );
+    ingredientListObserver.observe(sentinel);
+  }
+}
+
+function bindIngredientTile(tile) {
+  tile.querySelector("[data-edit-ingredient]")?.addEventListener("click", (event) => {
+    fillIngredientForm(state.ingredients[event.currentTarget.dataset.editIngredient]);
+  });
+
+  const button = tile.querySelector("[data-delete-ingredient]");
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    if (!requireCloudWrite()) return;
+    const key = button.dataset.deleteIngredient;
+    const inUse = state.recipes.some((recipe) => recipe.ingredients?.some((item) => typeof item === "object" && item.key === key));
+    if (inUse) {
+      setAuthMessage("This ingredient is used by a recipe and cannot be deleted.");
+      return;
+    }
+
+    // Deleting drops its photo and macros for good, so ask first (same dialog
+    // as removing an ingredient row in the recipe editor).
+    const name = state.ingredients[key]?.name || "This ingredient";
+    if (!await confirmAction({
+      title: "Delete ingredient?",
+      message: `${name} will be removed from your ingredient list.`,
+      confirmLabel: "Delete",
+    })) return;
+    if (!state.ingredients[key]) return;
+
+    if (state.ingredients[key]?.imagePath) void deleteStoredImage(state.ingredients[key].imagePath);
+    delete state.ingredients[key];
+    saveState();
+    renderAll();
+    refreshRecipeMacroPreview();
   });
 }
 
@@ -3819,7 +3889,7 @@ function kitchenStockTile(entry) {
   const ingredient = kitchenStockCatalogEntry(entry);
   const image = ingredient ? ingredientImage(ingredient) : "";
   const visual = image
-    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(entry.name)}" /></span>`
+    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(tileImageUrl(image))}" alt="" width="240" height="240" loading="lazy" decoding="async" data-cloud-image data-image-label="${escapeHtml(entry.name)}" /></span>`
     : `<span class="ingredient-tile-visual">${escapeHtml(entry.name.slice(0, 1).toUpperCase())}</span>`;
 
   return `
@@ -3853,7 +3923,7 @@ function ingredientTile(ingredient) {
   const image = ingredientImage(ingredient);
   const url = safeLinkUrl(ingredient.url);
   const visual = image
-    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(image)}" alt="" loading="lazy" data-cloud-image data-image-label="${escapeHtml(ingredient.name)}" /></span>`
+    ? `<span class="ingredient-tile-visual has-image"><img class="ingredient-tile-image" src="${escapeHtml(tileImageUrl(image))}" alt="" width="240" height="240" loading="lazy" decoding="async" data-cloud-image data-image-label="${escapeHtml(ingredient.name)}" /></span>`
     : `<span class="ingredient-tile-visual">${escapeHtml(ingredient.name.slice(0, 1).toUpperCase())}</span>`;
   const macros = nutrients
     .filter((nutrient) => tileNutrientKeys.includes(nutrient.key))
@@ -3872,7 +3942,7 @@ function ingredientTile(ingredient) {
       <strong>${escapeHtml(ingredient.name)}</strong>
       <span class="ingredient-tile-serving">${escapeHtml(formatAmountsInText(ingredient.serving))} per serving · ${formatQuantity(
         servingsPerContainer(ingredient)
-      )} per ${escapeHtml(containerUnit(ingredient))}</span>
+      )} per container</span>
       <span class="ingredient-tile-macros nutrition-only">${macros}</span>
     </span>`;
 
@@ -4460,7 +4530,6 @@ function setupForms() {
       servingsPerContainer: servingsPerContainer({
         servingsPerContainer: parseFractionInput(document.getElementById("ingredient-servings-per-container").value)
       }),
-      containerUnit: containerUnit({ containerUnit: document.getElementById("ingredient-container-unit").value }),
       url: document.getElementById("ingredient-url").value.trim(),
       ...photo
     };
@@ -5302,7 +5371,7 @@ function recipeMeasurementOptions(ingredient, selectedMeasure) {
     optionMarkup(
       "container",
       ingredient
-        ? `Whole ${containerUnit(ingredient)} (${formatQuantity(servingsPerContainer(ingredient))} servings)`
+        ? `Whole container (${formatQuantity(servingsPerContainer(ingredient))} servings)`
         : "Whole container(s)",
       selected
     );
@@ -5649,7 +5718,7 @@ function updateRecipeIngredientRow(row) {
   // Every cloud sync re-renders the app, which lands here for every row. Rebuilding
   // a <select> while its native picker is open (mobile) or mid-edit throws away the
   // choice, so the options are only rewritten when the ingredient behind them changed.
-  const optionsKey = ingredient ? `${ingredient.key}|${ingredient.serving}|${containerUnit(ingredient)}|${servingsPerContainer(ingredient)}` : "";
+  const optionsKey = ingredient ? `${ingredient.key}|${ingredient.serving}|container|${servingsPerContainer(ingredient)}` : "";
   const busy = document.activeElement === select;
   if (select.dataset.optionsKey !== optionsKey || !select.options.length) {
     if (!busy || !select.options.length) {
@@ -5669,7 +5738,7 @@ function updateRecipeIngredientRow(row) {
   }
   hint.textContent = ingredient
     ? measure === "container"
-      ? `${formatQuantity(servingsPerContainer(ingredient))} servings per ${containerUnit(ingredient)}`
+      ? `${formatQuantity(servingsPerContainer(ingredient))} servings per container`
       : measure === "serving"
         ? `${ingredient.serving} per serving`
         : serving?.unit && !measurementIsCompatible(measure, serving.unit)
@@ -5704,7 +5773,7 @@ function collectRecipeIngredients(allowIncomplete = false) {
     if (ingredient) {
       ingredients.push({ key: ingredient.key, quantity, measure });
     } else {
-      const unit = measure === "serving" ? "" : measure === "container" ? containerUnit(ingredient) : measure;
+      const unit = measure === "serving" ? "" : measure;
       // Stored with the unit spelled out (even "piece") so the row reopens with the
       // same unit selected; the display drops it.
       const label = unitNamesIngredient(unit, name) ? "" : name;
@@ -5763,25 +5832,11 @@ function refreshRecipeIngredientRows() {
   refreshRecipeMacroPreview();
 }
 
-function populateContainerUnits() {
-  const select = document.getElementById("ingredient-container-unit");
-  if (!select || select.options.length) return;
-  select.innerHTML = containerUnits.map((unit) => optionMarkup(unit, `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`, "container")).join("");
-  select.addEventListener("change", syncContainerUnitLabel);
-  syncContainerUnitLabel();
-}
-
-function syncContainerUnitLabel() {
-  const label = document.getElementById("ingredient-container-unit-label");
-  if (label) label.textContent = containerUnit({ containerUnit: document.getElementById("ingredient-container-unit")?.value });
-}
-
 function populateServingUnits() {
   const select = document.getElementById("ingredient-serving-unit");
   if (!select || select.options.length) return;
   select.innerHTML = unitOptionsMarkup({ selected: "g", includeOther: true });
   select.addEventListener("change", syncServingUnitCustom);
-  populateContainerUnits();
   bindQuantityInput(document.getElementById("ingredient-serving-amount"));
   bindQuantityInput(document.getElementById("ingredient-servings-per-container"));
   syncServingUnitCustom();
@@ -5847,8 +5902,6 @@ function fillIngredientForm(ingredient) {
     document.getElementById(nutrientInputId(nutrient)).value = roundTo(Number(ingredient[nutrient.key] || 0), 2);
   });
   document.getElementById("ingredient-servings-per-container").value = formatQuantity(servingsPerContainer(ingredient));
-  document.getElementById("ingredient-container-unit").value = containerUnit(ingredient);
-  syncContainerUnitLabel();
   document.getElementById("ingredient-url").value = ingredient.url;
   clearIngredientPhotoDraft();
   ingredientDraftImage = ingredientImage(ingredient);
@@ -5933,8 +5986,6 @@ function resetIngredientMacroInputs() {
     if (section) section.open = false;
   });
   document.getElementById("ingredient-servings-per-container").value = "1";
-  document.getElementById("ingredient-container-unit").value = "container";
-  syncContainerUnitLabel();
   setServingInputs("1 g");
 }
 
@@ -6669,7 +6720,11 @@ function resizeImageToBlob(file, maxWidth) {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.width * scale));
     canvas.height = Math.max(1, Math.round(image.height * scale));
-    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    const context = canvas.getContext("2d");
+    // JPEG has no transparency, so a cut-out product shot would turn black.
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
     return new Promise((resolve, reject) => {
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("the image could not be encoded"))),
@@ -6678,6 +6733,22 @@ function resizeImageToBlob(file, maxWidth) {
       );
     });
   });
+}
+
+// Small WebPs keep their bytes. Big ones (store photos are often 2000px+) make the
+// ingredient grid slow to scroll, so they're shrunk like other formats. Some
+// browsers stall decoding particular WebP variants, so a resize that hangs or
+// fails falls back to the original bytes rather than losing the photo.
+const WEBP_KEEP_AS_IS_BYTES = 200 * 1024;
+
+async function prepareWebpBlob(blob, maxWidth) {
+  const original = blob.type === "image/webp" ? blob : blob.slice(0, blob.size, "image/webp");
+  if (blob.size <= WEBP_KEEP_AS_IS_BYTES) return original;
+  try {
+    return await withTimeout(resizeImageToBlob(blob, maxWidth), 5000, "resize timed out");
+  } catch (error) {
+    return original;
+  }
 }
 
 async function withImageSource(file, draw) {
@@ -6742,6 +6813,22 @@ function recipeImage(recipe) {
 
 function ingredientImage(ingredient) {
   return safeImageUrl(ingredient?.image);
+}
+
+// Linked Walmart photos point at the full-size original (often 2000px+), which
+// is slow to download and decode on a phone. Walmart's image CDN resizes on
+// request, so tiles ask for a small copy instead.
+function tileImageUrl(url, size = 480) {
+  try {
+    const parsed = new URL(url);
+    if (!/(^|\.)walmartimages\.com$/i.test(parsed.hostname)) return url;
+    parsed.searchParams.set("odnHeight", String(size));
+    parsed.searchParams.set("odnWidth", String(size));
+    parsed.searchParams.set("odnBg", "FFFFFF");
+    return parsed.href;
+  } catch (error) {
+    return url;
+  }
 }
 
 function setupCloudImageDiagnostics(container) {
@@ -6941,8 +7028,13 @@ async function readPhotoLink(value, maxWidth, setMessage) {
       showToast("That image is too large to use - try a different link.", { tone: "error" });
       return null;
     }
-    // Small WebPs keep their bytes (see readPhotoSelection); everything else is resized to JPEG.
-    const ready = isWebpFile(blob) && blob.size < PHOTO_UPLOAD_MAX_BYTES ? blob : await resizeImageToBlob(blob, maxWidth);
+    // Small WebPs keep their bytes (see prepareWebpBlob); everything else is resized to JPEG.
+    const ready = isWebpFile(blob) ? await prepareWebpBlob(blob, maxWidth) : await resizeImageToBlob(blob, maxWidth);
+    if (ready.size >= PHOTO_UPLOAD_MAX_BYTES) {
+      setMessage("");
+      showToast(PHOTO_TOO_BIG_MESSAGE, { tone: "error" });
+      return null;
+    }
     setMessage("Photo ready - it uploads when you save.");
     return { blob: ready };
   } catch (error) {
@@ -6973,11 +7065,10 @@ async function readPhotoSelection(event, maxWidth, setMessage) {
 
   setMessage("Preparing your photo...");
   try {
-    // Some browsers stall while decoding particular WebP variants. Firebase can
-    // store WebP directly, so preserve its bytes and MIME type instead of routing
-    // it through canvas. Other formats are still resized and encoded as JPEG.
+    // WebPs go through prepareWebpBlob, which keeps small ones byte-for-byte and
+    // falls back to the original if a browser stalls decoding one.
     if (isWebpFile(file)) {
-      const blob = file.slice(0, file.size, "image/webp");
+      const blob = await prepareWebpBlob(file, maxWidth);
       setMessage("Photo ready - it uploads when you save.");
       return blob;
     }
