@@ -882,6 +882,100 @@ function plannedRecipes() {
     .filter(Boolean);
 }
 
+// ---- Plates ------------------------------------------------------------------
+// "Build a plate" fills a meal with three picks instead of one recipe: a protein,
+// a veggie and a side. Each pick is a recipe or a plain ingredient from the
+// index. The slot's value is PLATE_VALUE and the picks live beside the slot
+// values, in plan.plates[day][meal], so code that reads plan[day][meal] as a
+// recipe id simply finds no recipe and moves on.
+//   pick: { type: "recipe", id }  or  { type: "ingredient", key }
+const PLATE_VALUE = "plate";
+const plateRoles = [
+  { key: "protein", label: "Protein", empty: "Choose a protein" },
+  { key: "veggie", label: "Veggie", empty: "Choose a veggie" },
+  { key: "side", label: "Side", empty: "Choose a side" }
+];
+
+function isPlateValue(value) {
+  return value === PLATE_VALUE;
+}
+
+function validPick(pick) {
+  return pick?.type === "recipe" ? Boolean(recipeById(pick.id))
+    : pick?.type === "ingredient" ? Boolean(state.ingredients[pick.key])
+    : false;
+}
+
+function samePick(a, b) {
+  return a.type === b.type && (a.type === "recipe" ? a.id === b.id : a.key === b.key);
+}
+
+// Picks whose recipe or ingredient has since been deleted drop out.
+function slotPlate(plan, day, meal) {
+  const raw = plan?.plates?.[day]?.[meal];
+  if (!raw || typeof raw !== "object") return {};
+  return Object.fromEntries(
+    plateRoles.map(({ key }) => [key, raw[key]]).filter(([, pick]) => validPick(pick))
+  );
+}
+
+function setSlotPlate(plan, day, meal, plate) {
+  const picks = Object.fromEntries(
+    plateRoles
+      .map(({ key }) => [key, plate?.[key]])
+      .filter(([, pick]) => validPick(pick))
+      .map(([key, pick]) => [key, pick.type === "recipe" ? { type: "recipe", id: pick.id } : { type: "ingredient", key: pick.key }])
+  );
+  plan.plates = plan.plates && typeof plan.plates === "object" ? plan.plates : {};
+  plan.plates[day] = plan.plates[day] && typeof plan.plates[day] === "object" ? plan.plates[day] : {};
+  if (Object.keys(picks).length) plan.plates[day][meal] = picks;
+  else delete plan.plates[day][meal];
+  if (!Object.keys(plan.plates[day]).length) delete plan.plates[day];
+  if (!Object.keys(plan.plates).length) delete plan.plates;
+}
+
+function pickSummary(pick) {
+  if (pick.type === "recipe") {
+    const recipe = recipeById(pick.id);
+    return { kind: "recipe", label: recipe?.name || "", image: recipe ? recipeImage(recipe) : "", note: "" };
+  }
+  const ingredient = state.ingredients[pick.key];
+  // Small copies of linked Walmart photos: these thumbs are tiny.
+  const image = ingredient ? ingredientImage(ingredient) : "";
+  return { kind: "recipe", label: ingredient?.name || "", image: image ? tileImageUrl(image, 160) : "", note: "" };
+}
+
+// Plates count toward groceries and nutrition as recipe-shaped objects, so the
+// grocery and macro code needs no special case. A recipe pick is the recipe; an
+// ingredient pick is one serving for each person eating.
+function pickAsRecipe(pick, plateName) {
+  if (pick.type === "recipe") return recipeById(pick.id) || null;
+  const ingredient = state.ingredients[pick.key];
+  if (!ingredient) return null;
+  const servings = Math.max(1, Number(nutritionSettings().people) || 1);
+  return {
+    id: `plate:${pick.key}`,
+    name: plateName,
+    servings,
+    ingredients: [{ key: ingredient.key, quantity: servings, measure: "serving" }]
+  };
+}
+
+function planPlateRecipes(plan) {
+  return days.flatMap((day) =>
+    meals.flatMap((meal) => {
+      if (!isPlateValue(plan?.[day]?.[meal])) return [];
+      const plate = slotPlate(plan, day, meal);
+      const name = `${day} ${meal.toLowerCase()} plate`;
+      return Object.values(plate).map((pick) => pickAsRecipe(pick, name)).filter(Boolean);
+    })
+  );
+}
+
+function plannedPlateRecipes() {
+  return planPlateRecipes(getCurrentPlan());
+}
+
 // Groceries aren't capped by the selected week: every meal planned from the
 // current week onward is shopped for. Past weeks are left out so old plans
 // don't pile up on the list. Week keys are YYYY-MM-DD, so they sort as strings.
@@ -891,10 +985,14 @@ function upcomingPlannedRecipes() {
   const thisWeekKey = dateKey(getWeekStart(new Date()));
   return Object.entries(planner.plans)
     .filter(([weekKey]) => weekKey >= thisWeekKey)
-    .flatMap(([, plan]) => days.flatMap((day) => meals.map((meal) => plan[day]?.[meal]).filter(Boolean)))
-    .filter((value) => !isTakeoutValue(value))
-    .map(recipeById)
-    .filter(Boolean);
+    .flatMap(([, plan]) => [
+      ...days.flatMap((day) => meals.map((meal) => plan[day]?.[meal]).filter(Boolean))
+        .filter((value) => !isTakeoutValue(value))
+        .map(recipeById)
+        .filter(Boolean),
+      // A plate's protein, veggie and side are shopped for too.
+      ...planPlateRecipes(plan)
+    ]);
 }
 
 function renderTabs() {
@@ -1124,7 +1222,16 @@ function resetPlannerDay() {
   selectedDayIndex = null;
 }
 
-function slotSummary(value) {
+// plate: the slot's picks (slotPlate), needed when the value is a plate.
+function slotSummary(value, plate = {}) {
+  if (isPlateValue(value)) {
+    // The protein leads (its photo and name); the rest read as "with ...".
+    const [lead, ...rest] = plateRoles.map(({ key }) => plate[key]).filter(Boolean).map(pickSummary);
+    if (!lead) return { kind: "plate", label: "Plate", image: "", note: "" };
+    const others = rest.map((item) => item.label);
+    const note = others.length ? `with ${others.length > 1 ? `${others.slice(0, -1).join(", ")} & ${others.at(-1)}` : others[0]}` : "";
+    return { kind: "plate", label: lead.label, image: lead.image, note };
+  }
   if (isTakeoutValue(value)) {
     const name = takeoutName(value);
     return { kind: "takeout", label: name || "Takeout", image: "", note: name ? "Takeout" : "" };
@@ -1138,7 +1245,7 @@ function slotSummary(value) {
 function mealThumbMarkup(summary) {
   if (summary.image) return `<span class="meal-slot-thumb has-photo" style="background-image:url('${summary.image}')"></span>`;
   const content = summary.kind === "takeout" ? "🥡"
-    : summary.kind === "recipe" ? `<span class="meal-slot-initial">${escapeHtml(summary.label.trim().charAt(0).toUpperCase())}</span>`
+    : summary.kind === "recipe" || summary.kind === "plate" ? `<span class="meal-slot-initial">${escapeHtml(summary.label.trim().charAt(0).toUpperCase())}</span>`
     : "+";
   return `<span class="meal-slot-thumb" aria-hidden="true">${content}</span>`;
 }
@@ -1158,6 +1265,9 @@ function closeMealPicker({ restoreFocus = false } = {}) {
   if (restoreFocus && trigger.isConnected) trigger.focus();
 }
 
+// The picker's own value for the "Build a plate" row (never stored in a plan).
+const PLATE_PICK = "__plate";
+
 function openMealPicker(trigger) {
   const slot = trigger.closest(".meal-slot");
   const select = slot?.querySelector(".meal-slot-select");
@@ -1165,8 +1275,10 @@ function openMealPicker(trigger) {
   if (mealPicker?.trigger === trigger) return closeMealPicker({ restoreFocus: true });
   closeMealPicker();
 
-  const current = select.value;
   const { day, meal } = select.dataset;
+  // The slot's own value rather than the hidden <select>'s: a plate has no <option>.
+  const current = getCurrentPlan()[day]?.[meal] || "";
+  const currentIsPlate = isPlateValue(current);
   const items = [...select.options]
     .filter((option) => option.value || current)
     .map((option) => {
@@ -1184,7 +1296,54 @@ function openMealPicker(trigger) {
         thumb: mealThumbMarkup(summary)
       };
     });
-  const selectedValue = isTakeoutValue(current) ? TAKEOUT_PREFIX : current;
+  // "Build a plate" sits right after Takeout, above the recipes.
+  items.splice(items.findIndex((item) => item.value === TAKEOUT_PREFIX) + 1, 0, {
+    value: PLATE_PICK,
+    label: currentIsPlate ? "Edit plate" : "Build a plate",
+    meta: "A protein, a veggie and a side",
+    thumb: `<span class="meal-slot-thumb" aria-hidden="true">${icon("utensils")}</span>`
+  });
+  const selectedValue = isTakeoutValue(current) ? TAKEOUT_PREFIX : currentIsPlate ? PLATE_PICK : current;
+
+  // ---- Plate draft: what the three fields hold until "Save plate". A meal that
+  // already has a recipe starts with it as the protein.
+  const draft = currentIsPlate
+    ? { ...slotPlate(getCurrentPlan(), day, meal) }
+    : recipeById(current) ? { protein: { type: "recipe", id: current } } : {};
+  let view = "main"; // "main" | "plate" | a plate role key
+
+  // Each field leads with the likely picks; anything else is a search away.
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const ingredientsList = Object.values(state.ingredients).sort(byName);
+  const recipesList = [...state.recipes].sort(byName);
+  const ingredientsIn = (...categories) => ingredientsList.filter((ingredient) => categories.includes(ingredientCategory(ingredient)));
+  const recipesIn = (...categories) => recipesList.filter((recipe) => categories.includes(recipe.category));
+  const roleGroups = {
+    protein: [["Main dishes", recipesIn("Breakfast", "Lunch", "Dinner")], ["Proteins", ingredientsIn("Meat & seafood")]],
+    veggie: [["Veggies", ingredientsIn("Produce", "Frozen")], ["Side dishes", recipesIn("Side")]],
+    side: [["Side dishes", recipesIn("Side")], ["Grains & more", ingredientsIn("Bakery & grains", "Canned & dry goods")]]
+  };
+  const asPick = (entry) => (entry.key && state.ingredients[entry.key] === entry
+    ? { type: "ingredient", key: entry.key }
+    : { type: "recipe", id: entry.id });
+  const pickMeta = (pick) => {
+    if (pick.type === "recipe") {
+      const recipe = recipeById(pick.id);
+      return [recipe?.category, recipe ? `Serves ${formatQuantity(Number(recipe.servings || 1))}` : ""].filter(Boolean).join(" · ");
+    }
+    const ingredient = state.ingredients[pick.key];
+    return ingredient?.serving ? `per ${ingredient.serving}` : "";
+  };
+  const roleItems = (role) => {
+    const featured = roleGroups[role].flatMap(([group, entries]) => entries.map((entry) => ({ group, featured: true, pick: asPick(entry) })));
+    const rest = [
+      ...recipesList.map((recipe) => ({ type: "recipe", id: recipe.id })),
+      ...ingredientsList.map((ingredient) => ({ type: "ingredient", key: ingredient.key }))
+    ]
+      .filter((pick) => !featured.some((item) => samePick(item.pick, pick)))
+      .map((pick) => ({ group: "Everything else", featured: false, pick }));
+    return [...featured, ...rest].map((item) => ({ ...item, label: pickSummary(item.pick).label, meta: pickMeta(item.pick) }));
+  };
 
   const element = document.createElement("div");
   element.className = "meal-picker";
@@ -1192,13 +1351,23 @@ function openMealPicker(trigger) {
   element.setAttribute("aria-label", `Choose ${meal.toLowerCase()} for ${day}`);
   element.innerHTML = `
     <div class="meal-picker-head">
+      <button class="meal-picker-back" type="button" hidden>${icon("chevron-left")}<span></span></button>
       <strong>${escapeHtml(`${day} · ${meal}`)}</strong>
       <button class="meal-picker-close" type="button" aria-label="Close">${icon("x")}</button>
     </div>
+    <div class="plate-builder" hidden>
+      <p class="plate-builder-title">Build a plate</p>
+      <div class="plate-fields">
+        ${plateRoles.map((role) => `<button class="plate-field" type="button" data-plate-role="${role.key}"></button>`).join("")}
+      </div>
+      <div class="meal-picker-foot">
+        <button class="primary-button plate-save" type="button">Save plate</button>
+      </div>
+    </div>
     <input class="meal-picker-search" type="search" placeholder="Search recipes" aria-label="Search recipes" autocomplete="off" />
-    <ul class="meal-picker-list" role="listbox" aria-label="Recipes">
+    <ul class="meal-picker-list is-main" role="listbox" aria-label="Recipes">
       ${items.map((item, index) => `
-        <li class="meal-picker-option${item.value ? "" : " is-clear"}" role="option" id="meal-picker-option-${index}" data-value="${escapeHtml(item.value)}"
+        <li class="meal-picker-option${item.value ? "" : " is-clear"}${item.value === PLATE_PICK ? " is-plate" : ""}" role="option" id="meal-picker-option-${index}" data-value="${escapeHtml(item.value)}"
           aria-selected="${item.value === selectedValue && item.value !== ""}" data-search="${escapeHtml(item.label.toLowerCase())}">
           ${item.thumb}
           <span class="meal-picker-text">
@@ -1208,12 +1377,18 @@ function openMealPicker(trigger) {
           ${item.value && item.value === selectedValue ? `<span class="meal-picker-check" aria-hidden="true">${icon("check")}</span>` : ""}
         </li>`).join("")}
     </ul>
+    <ul class="meal-picker-list is-role" role="listbox" hidden></ul>
     <p class="meal-picker-empty" hidden>No recipes match.</p>`;
   document.body.append(element);
 
   const search = element.querySelector(".meal-picker-search");
-  const list = element.querySelector(".meal-picker-list");
+  const mainList = element.querySelector(".meal-picker-list.is-main");
+  const roleList = element.querySelector(".meal-picker-list.is-role");
+  const builder = element.querySelector(".plate-builder");
+  const back = element.querySelector(".meal-picker-back");
   const empty = element.querySelector(".meal-picker-empty");
+  let list = mainList;
+  let roleEntries = [];
   const options = () => [...list.querySelectorAll(".meal-picker-option:not([hidden])")];
   let active = null;
 
@@ -1226,23 +1401,146 @@ function openMealPicker(trigger) {
     active.scrollIntoView({ block: "nearest" });
   };
 
+  // Unsearched, a field's list keeps to its likely groups; a search covers everything.
+  const applySearch = () => {
+    const query = search.value.trim().toLowerCase();
+    list.querySelectorAll(".meal-picker-option").forEach((option) => {
+      if (list === roleList) {
+        option.hidden = option.classList.contains("is-clear")
+          ? Boolean(query)
+          : query ? !option.dataset.search.includes(query) : option.dataset.featured !== "true";
+      } else {
+        option.hidden = Boolean(query) && (!option.dataset.value || !option.dataset.search.includes(query));
+      }
+    });
+    list.querySelectorAll(".meal-picker-group").forEach((header) => {
+      let next = header.nextElementSibling;
+      let visible = false;
+      while (next && !next.classList.contains("meal-picker-group")) {
+        if (!next.hidden) visible = true;
+        next = next.nextElementSibling;
+      }
+      header.hidden = !visible;
+    });
+    empty.hidden = list === null || options().length > 0;
+    setActive(query ? options()[0] : null);
+  };
+
+  const renderPlateFields = () => {
+    builder.querySelectorAll("[data-plate-role]").forEach((field) => {
+      const role = plateRoles.find((item) => item.key === field.dataset.plateRole);
+      const pick = draft[role.key];
+      const summary = pick ? pickSummary(pick) : null;
+      field.dataset.filled = String(Boolean(pick));
+      field.setAttribute("aria-label", `${role.label}: ${summary ? summary.label : "not chosen"}. Change`);
+      field.innerHTML = `
+        ${summary ? mealThumbMarkup(summary) : `<span class="meal-slot-thumb" aria-hidden="true">${icon("plus")}</span>`}
+        <span class="plate-field-text">
+          <span class="plate-field-label">${escapeHtml(role.label)}</span>
+          <span class="plate-field-value">${escapeHtml(summary ? summary.label : role.empty)}</span>
+        </span>
+        <span class="plate-field-chevron" aria-hidden="true">${icon("chevron-right")}</span>`;
+    });
+    builder.querySelector(".plate-save").disabled = !draft.protein;
+  };
+
+  const renderRoleList = (roleKey) => {
+    const role = plateRoles.find((item) => item.key === roleKey);
+    roleEntries = roleItems(roleKey);
+    roleList.setAttribute("aria-label", role.label);
+    let lastGroup = "";
+    const chosen = draft[roleKey];
+    roleList.innerHTML = `
+      ${chosen ? `<li class="meal-picker-option is-clear" role="option" id="meal-picker-role-clear" data-clear="true" aria-selected="false">
+          <span class="meal-slot-thumb" aria-hidden="true">${icon("x")}</span>
+          <span class="meal-picker-text"><span class="meal-picker-name">No ${escapeHtml(role.label.toLowerCase())}</span></span>
+        </li>` : ""}
+      ${roleEntries.map((item, index) => {
+        const header = item.group !== lastGroup
+          ? `<li class="meal-picker-group" role="presentation">${escapeHtml(item.group)}</li>`
+          : "";
+        lastGroup = item.group;
+        const selected = Boolean(chosen && samePick(chosen, item.pick));
+        return `${header}
+          <li class="meal-picker-option" role="option" id="meal-picker-role-${index}" data-role-index="${index}" data-featured="${item.featured}"
+            aria-selected="${selected}" data-search="${escapeHtml(`${item.label} ${item.meta}`.toLowerCase())}">
+            ${mealThumbMarkup(pickSummary(item.pick))}
+            <span class="meal-picker-text">
+              <span class="meal-picker-name">${escapeHtml(item.label)}</span>
+              ${item.meta ? `<span class="meal-picker-meta">${escapeHtml(item.meta)}</span>` : ""}
+            </span>
+            ${selected ? `<span class="meal-picker-check" aria-hidden="true">${icon("check")}</span>` : ""}
+          </li>`;
+      }).join("")}`;
+  };
+
+  // Three views share the sheet: the meal list, the plate's three fields, and a
+  // field's own list of choices.
+  const showView = (next) => {
+    view = next;
+    const isRole = plateRoles.some((role) => role.key === view);
+    builder.hidden = view !== "plate";
+    mainList.hidden = view !== "main";
+    roleList.hidden = !isRole;
+    search.hidden = view === "plate";
+    list = view === "main" ? mainList : isRole ? roleList : null;
+    back.hidden = view === "main";
+    back.querySelector("span").textContent = isRole ? "Plate" : "Meals";
+    back.setAttribute("aria-label", isRole ? "Back to the plate" : "Back to the meal list");
+    element.classList.toggle("is-plate", view !== "main");
+    if (view === "plate") renderPlateFields();
+    if (isRole) renderRoleList(view);
+    const role = plateRoles.find((item) => item.key === view);
+    search.placeholder = role ? `Search for a ${role.label.toLowerCase()}` : "Search recipes";
+    search.setAttribute("aria-label", search.placeholder);
+    empty.textContent = role ? "Nothing matches." : "No recipes match.";
+    search.value = "";
+    if (list) applySearch();
+    else {
+      empty.hidden = true;
+      active = null;
+    }
+    if (!isNarrowLayout()) (list ? search : builder.querySelector(".plate-field"))?.focus({ preventScroll: true });
+    place();
+  };
+
   const choose = (value) => {
+    if (value === PLATE_PICK) return showView("plate");
     closeMealPicker();
-    if (value === select.value || (value === TAKEOUT_PREFIX && isTakeoutValue(select.value))) return;
+    if (value === current || (value === TAKEOUT_PREFIX && isTakeoutValue(current))) return;
     select.value = value;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   };
 
+  const pickForRole = (option) => {
+    if (option.dataset.clear) delete draft[view];
+    else {
+      const item = roleEntries[Number(option.dataset.roleIndex)];
+      if (item) draft[view] = item.pick;
+    }
+    showView("plate");
+  };
+
+  const savePlate = () => {
+    if (!draft.protein || !requireCloudWrite()) return;
+    const plan = getCurrentPlan();
+    setSlotPlate(plan, day, meal, draft);
+    plan[day][meal] = PLATE_VALUE;
+    closeMealPicker();
+    saveState();
+    renderAll();
+  };
+
   // Beside the slot on wide screens (flipping above it near the bottom of the
   // window); phones get a sheet from the bottom edge via CSS instead.
-  const place = () => {
+  function place() {
     if (isNarrowLayout()) {
       element.classList.add("is-sheet");
       element.style.cssText = "";
       return;
     }
     element.classList.remove("is-sheet");
-    const rect = trigger.getBoundingClientRect();
+    const rect = (mealPicker?.trigger || trigger).getBoundingClientRect();
     const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 24);
     const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
     const below = window.innerHeight - rect.bottom - 12;
@@ -1254,17 +1552,10 @@ function openMealPicker(trigger) {
     element.style.maxHeight = `${maxHeight}px`;
     element.style.top = openUp ? "" : `${rect.bottom + 6}px`;
     element.style.bottom = openUp ? `${window.innerHeight - rect.top + 6}px` : "";
-  };
+  }
   place();
 
-  search.addEventListener("input", () => {
-    const query = search.value.trim().toLowerCase();
-    list.querySelectorAll(".meal-picker-option").forEach((option) => {
-      option.hidden = Boolean(query) && (!option.dataset.value || !option.dataset.search.includes(query));
-    });
-    empty.hidden = options().length > 0;
-    setActive(query ? options()[0] : null);
-  });
+  search.addEventListener("input", applySearch);
 
   search.addEventListener("keydown", (event) => {
     const visible = options();
@@ -1277,18 +1568,28 @@ function openMealPicker(trigger) {
       setActive(visible[Math.max(0, index - 1)] || visible[0]);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (active) choose(active.dataset.value);
+      if (active && list === roleList) pickForRole(active);
+      else if (active) choose(active.dataset.value);
     }
   });
 
-  list.addEventListener("click", (event) => {
+  mainList.addEventListener("click", (event) => {
     const option = event.target.closest(".meal-picker-option");
     if (option) choose(option.dataset.value);
   });
+  roleList.addEventListener("click", (event) => {
+    const option = event.target.closest(".meal-picker-option");
+    if (option) pickForRole(option);
+  });
+  builder.querySelectorAll("[data-plate-role]").forEach((field) => {
+    field.addEventListener("click", () => showView(field.dataset.plateRole));
+  });
+  builder.querySelector(".plate-save").addEventListener("click", savePlate);
+  back.addEventListener("click", () => showView(view === "plate" ? "main" : "plate"));
   element.querySelector(".meal-picker-close").addEventListener("click", () => closeMealPicker({ restoreFocus: true }));
 
   const onPointerDown = (event) => {
-    if (!element.contains(event.target) && !trigger.contains(event.target)) closeMealPicker();
+    if (!element.contains(event.target) && !(mealPicker?.trigger || trigger).contains(event.target)) closeMealPicker();
   };
   const onKeyDown = (event) => {
     if (event.key === "Escape") closeMealPicker({ restoreFocus: true });
@@ -1314,12 +1615,12 @@ function openMealPicker(trigger) {
   // Typing straight away is handy with a keyboard; on a phone it would throw
   // the keyboard over the list, so the sheet opens without focusing search.
   if (!isNarrowLayout()) search.focus({ preventScroll: true });
-  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  mainList.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
 }
 
-function mealSlotMarkup(day, meal, value, isToday = false) {
+function mealSlotMarkup(day, meal, value, isToday = false, plate = {}) {
   const takeout = isTakeoutValue(value);
-  const summary = slotSummary(value);
+  const summary = slotSummary(value, plate);
   const filled = summary.kind !== "empty";
   const thumb = mealThumbMarkup(summary);
   const emptyLabel = isToday ? "Pick a recipe" : `Add ${meal.toLowerCase()}`;
@@ -1338,7 +1639,7 @@ function mealSlotMarkup(day, meal, value, isToday = false) {
           ${recipeOptions(value)}
         </select>
         <button class="meal-slot-open" type="button" data-pick-meal="${day}-${meal}" aria-haspopup="dialog"
-          aria-label="${escapeHtml(`${day} ${meal}: ${filled ? summary.label : "nothing planned"}. Choose a recipe`)}"></button>
+          aria-label="${escapeHtml(`${day} ${meal}: ${filled ? `${summary.label}${summary.kind === "plate" && summary.note ? ` ${summary.note}` : ""}` : "nothing planned"}. Choose a recipe`)}"></button>
       </div>
       <input
         class="takeout-name"
@@ -1354,7 +1655,11 @@ function mealSlotMarkup(day, meal, value, isToday = false) {
 }
 
 function renderPlanner() {
-  if (mealPicker && !document.getElementById("week-grid").contains(mealPicker.trigger)) closeMealPicker();
+  // A redraw (often just the echo of a save from the open picker) replaces the
+  // button that opened it; the picker moves over to the new one instead of closing.
+  const pickerOpener = mealPicker?.trigger;
+  const pickerSelector = pickerOpener?.dataset.pickMeal ? `[data-pick-meal="${pickerOpener.dataset.pickMeal}"]` : null;
+  if (mealPicker && !document.getElementById("week-grid").contains(pickerOpener)) closeMealPicker();
   const planner = ensureActivePlanner();
   const plan = getCurrentPlan();
   const grid = document.getElementById("week-grid");
@@ -1416,14 +1721,14 @@ function renderPlanner() {
       const date = addDays(selectedWeekStart, index);
       const filled = filledCounts[index];
       const isToday = dateKey(date) === todayKey;
-      const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "", isToday)).join("");
+      const slots = meals.map((meal) => mealSlotMarkup(day, meal, plan[day]?.[meal] || "", isToday, slotPlate(plan, day, meal))).join("");
       // The phone table keeps a read-only row for today in its place; today's
       // card above it is where those meals are edited, so the row jumps there.
       const todayRow = isToday
         ? `<button type="button" class="plan-today-row" aria-label="Today's meals">
             <span class="day-row-label"><span class="day-row-number">${date.getDate()}</span><span class="day-row-name">Today</span></span>
             ${meals.map((meal) => {
-              const summary = slotSummary(plan[day]?.[meal] || "");
+              const summary = slotSummary(plan[day]?.[meal] || "", slotPlate(plan, day, meal));
               return `<span class="plan-today-cell" data-filled="${summary.kind !== "empty"}">${mealThumbMarkup(summary)}<span class="meal-slot-value">${escapeHtml(summary.label)}</span></span>`;
             }).join("")}
           </button>`
@@ -1481,7 +1786,10 @@ function renderPlanner() {
       const slot = select.closest(".meal-slot");
       const nameInput = slot?.querySelector(".takeout-name");
       const value = select.value === TAKEOUT_PREFIX ? takeoutValue(nameInput?.value || "") : select.value;
-      getCurrentPlan()[select.dataset.day][select.dataset.meal] = value;
+      const plan = getCurrentPlan();
+      // Picking a recipe, takeout or nothing replaces a plate that was there.
+      setSlotPlate(plan, select.dataset.day, select.dataset.meal, {});
+      plan[select.dataset.day][select.dataset.meal] = value;
       saveState();
       renderAll();
       if (isTakeoutValue(value)) {
@@ -1509,6 +1817,12 @@ function renderPlanner() {
       renderAll();
     });
   });
+
+  if (mealPicker && pickerSelector) {
+    const opener = grid.querySelector(pickerSelector);
+    if (opener) mealPicker.trigger = opener;
+    else closeMealPicker();
+  }
 
   // Re-rendering the grid replaces the controls, so re-apply the write lock here
   // rather than only from renderAll - the day strip re-renders on its own too.
@@ -2131,8 +2445,10 @@ function updateAddToPlanNote() {
   }
   submit.disabled = !canWriteCloudData();
   const plan = planner.plans[dateKey(addPlanWeekStart)];
-  const existing = plan?.[document.getElementById("add-plan-day").value]?.[document.getElementById("add-plan-meal").value];
-  const summary = existing ? slotSummary(existing) : null;
+  const day = document.getElementById("add-plan-day").value;
+  const meal = document.getElementById("add-plan-meal").value;
+  const existing = plan?.[day]?.[meal];
+  const summary = existing ? slotSummary(existing, slotPlate(plan, day, meal)) : null;
   note.textContent = summary && summary.kind !== "empty" ? `Replaces ${summary.label}.` : "";
 }
 
@@ -2155,7 +2471,11 @@ function setupAddToPlan() {
     if (!planner || !addPlanRecipe || !requireCloudWrite()) return;
     const key = dateKey(addPlanWeekStart);
     if (!planner.plans[key]) planner.plans[key] = blankPlan();
-    planner.plans[key][document.getElementById("add-plan-day").value][document.getElementById("add-plan-meal").value] = addPlanRecipe.id;
+    const day = document.getElementById("add-plan-day").value;
+    const meal = document.getElementById("add-plan-meal").value;
+    planner.plans[key][day][meal] = addPlanRecipe.id;
+    // The recipe replaces whatever was there, a built plate included.
+    setSlotPlate(planner.plans[key], day, meal, {});
     saveState();
     renderAll();
     dialog.close();
@@ -3139,8 +3459,11 @@ const macroStatusLabels = {
 
 function renderMacros() {
   const planned = plannedRecipes();
-  const totals = planned.reduce((sum, recipe) => addNutrients(sum, recipeMacros(recipe)), emptyNutrients());
-  const containers = planned.reduce((sum, recipe) => sum + recipeContainers(recipe), 0);
+  // A plate adds its three picks to the totals and counts as one meal.
+  const plates = [...planned, ...plannedPlateRecipes()];
+  const mealCount = planned.length + plannedSlotValues().filter(isPlateValue).length;
+  const totals = plates.reduce((sum, recipe) => addNutrients(sum, recipeMacros(recipe)), emptyNutrients());
+  const containers = plates.reduce((sum, recipe) => sum + recipeContainers(recipe), 0);
   const settings = nutritionSettings();
 
   syncNutritionControls(settings);
@@ -3162,7 +3485,7 @@ function renderMacros() {
     <div class="macro-summary-meta">
       <span>${share}</span>
       <span>Your week: ${formatMacro(weeklyCalories)} cal (${settings.calories}/day)</span>
-      <span>${planned.length} meal${planned.length === 1 ? "" : "s"} planned</span>
+      <span>${mealCount} meal${mealCount === 1 ? "" : "s"} planned</span>
       <span>${formatQuantity(roundTo(containers, 2))} containers</span>
     </div>
     ${withData.length ? "" : '<p class="empty-state">Plan meals with saved ingredients to see how the week measures up.</p>'}`;

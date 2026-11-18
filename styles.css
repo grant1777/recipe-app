@@ -9858,3 +9858,146 @@ input[type="checkbox"] {
     font-size: 0.82rem;
   }
 }
+
+/* ---- Planner: build a plate (protein, veggie, side) ------------------------- */
+.meal-picker-back {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--accent);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  gap: 2px;
+  margin-left: -8px;
+  min-height: 32px;
+  padding: 0 10px 0 4px;
+}
+
+.meal-picker-back:hover {
+  background: var(--panel);
+}
+
+.meal-picker-back .icon {
+  height: 18px;
+  width: 18px;
+}
+
+.meal-picker-option.is-plate .meal-slot-thumb {
+  background: var(--pink-soft);
+  color: var(--accent);
+}
+
+.meal-picker-option.is-plate .meal-slot-thumb .icon {
+  height: 20px;
+  width: 20px;
+}
+
+.plate-builder {
+  display: grid;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.plate-builder-title {
+  font: 400 1.4rem/1.1 var(--font-display);
+  margin: 6px 16px 12px;
+}
+
+.plate-fields {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.plate-field {
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 8px 12px 8px 8px;
+  text-align: left;
+}
+
+.plate-field:hover {
+  background: var(--panel-soft);
+}
+
+.plate-field .meal-slot-thumb {
+  height: 48px;
+  width: 48px;
+}
+
+/* An empty field reads as a button to fill: dashed pink edge and a "+". */
+.plate-field[data-filled="false"] {
+  border: 1.5px dashed var(--pink-dash);
+}
+
+.plate-field[data-filled="false"] .meal-slot-thumb {
+  background: var(--pink-soft);
+  color: var(--accent);
+}
+
+.plate-field-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plate-field-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.plate-field-value {
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plate-field[data-filled="false"] .plate-field-value {
+  color: var(--accent);
+}
+
+.plate-field-chevron {
+  color: var(--faint);
+  display: inline-flex;
+}
+
+.plate-field-chevron .icon {
+  height: 18px;
+  width: 18px;
+}
+
+.meal-picker-group {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 10px 10px 4px;
+  text-transform: uppercase;
+}
+
+.meal-picker-foot {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.meal-picker-foot .primary-button {
+  width: 100%;
+}
