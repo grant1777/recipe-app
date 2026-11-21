@@ -1,7 +1,7 @@
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const meals = ["Breakfast", "Lunch", "Dinner"];
 const TAKEOUT_PREFIX = "takeout:";
-const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
+const categoryOrder = ["Breakfast", "Lunch", "Dinner", "Protein", "Dessert", "Snack", "Side", "Drink"];
 const RECIPE_PHOTO_MAX_WIDTH = 720;
 const INGREDIENT_PHOTO_MAX_WIDTH = 480;
 
@@ -192,7 +192,9 @@ const measurementAliases = {
 
 const customServingUnit = "__other__";
 
-const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Dessert", "Snack", "Side", "Drink"];
+// "Protein" is for cooked components (grilled chicken, pulled pork) that get
+// built into plates or used as sub-recipes.
+const defaultRecipeCategories = ["Breakfast", "Lunch", "Dinner", "Protein", "Dessert", "Snack", "Side", "Drink"];
 
 const authEls = {
   appShell: document.getElementById("app-shell"),
@@ -858,6 +860,68 @@ function recipeById(id) {
   return state.recipes.find((recipe) => recipe.id === id);
 }
 
+// ---- Sub-recipes -------------------------------------------------------------
+// A recipe can list another recipe as one of its ingredients ("2 servings Mashed
+// Potatoes"). The row stores the recipe's id, not its name, so renaming the
+// sub-recipe never breaks its parents:
+//   { recipeId, quantity, measure: "serving" | "batch" }
+// Nesting is allowed; `trail` (the ids already being expanded) stops a loop
+// from recursing forever if one ever slips past the editor.
+function isSubRecipeRow(item) {
+  return Boolean(item && typeof item === "object" && item.recipeId);
+}
+
+// How much of the sub-recipe's batch the row uses: 2 servings of a recipe that
+// serves 4 is half the batch.
+function subRecipeFactor(item, subRecipe) {
+  const quantity = Number(item?.quantity || 0);
+  if (item?.measure === "batch") return quantity;
+  return quantity / Math.max(1, Number(subRecipe?.servings) || 1);
+}
+
+function subRecipeAmountText(item) {
+  const quantity = Number(item?.quantity || 0);
+  if (item?.measure === "batch") return `${formatQuantity(roundTo(quantity, 3))} recipe`;
+  return `${formatQuantity(roundTo(quantity, 3))} ${quantity > 0 && roundTo(quantity, 2) <= 1 ? "serving" : "servings"}`;
+}
+
+function scaleRecipeRow(item, factor) {
+  if (factor === 1) return item;
+  if (typeof item === "string") return scaleIngredientText(item, factor);
+  return item && typeof item === "object" ? { ...item, quantity: Number(item.quantity || 0) * factor } : item;
+}
+
+// The one place sub-recipes are expanded: a recipe's rows with every sub-recipe
+// replaced by its own rows, scaled to the share used. Groceries, stock coverage,
+// "I made this" and container counts all read this, so they always agree.
+function flatRecipeIngredients(recipe, factor = 1, trail = new Set()) {
+  if (!recipe) return [];
+  const inside = new Set([...trail, recipe.id]);
+  return (recipe.ingredients || []).flatMap((item) => {
+    if (!isSubRecipeRow(item)) return item ? [scaleRecipeRow(item, factor)] : [];
+    const subRecipe = recipeById(item.recipeId);
+    if (!subRecipe || inside.has(subRecipe.id)) return [];
+    return flatRecipeIngredients(subRecipe, factor * subRecipeFactor(item, subRecipe), inside);
+  });
+}
+
+function hasSubRecipes(recipe) {
+  return Boolean(recipe?.ingredients?.some(isSubRecipeRow));
+}
+
+// Whether `recipe` uses `targetId` anywhere down its sub-recipe tree.
+function recipeIncludes(recipe, targetId, trail = new Set()) {
+  if (!recipe || trail.has(recipe.id)) return false;
+  const inside = new Set([...trail, recipe.id]);
+  return (recipe.ingredients || []).some((item) => isSubRecipeRow(item)
+    && (item.recipeId === targetId || recipeIncludes(recipeById(item.recipeId), targetId, inside)));
+}
+
+// Recipes that list this one directly, for the delete warning.
+function recipesUsing(recipeId) {
+  return state.recipes.filter((recipe) => recipe.id !== recipeId && recipe.ingredients?.some((item) => isSubRecipeRow(item) && item.recipeId === recipeId));
+}
+
 function isTakeoutValue(value) {
   return typeof value === "string" && value.startsWith(TAKEOUT_PREFIX);
 }
@@ -1319,7 +1383,7 @@ function openMealPicker(trigger) {
   const ingredientsIn = (...categories) => ingredientsList.filter((ingredient) => categories.includes(ingredientCategory(ingredient)));
   const recipesIn = (...categories) => recipesList.filter((recipe) => categories.includes(recipe.category));
   const roleGroups = {
-    protein: [["Main dishes", recipesIn("Breakfast", "Lunch", "Dinner")], ["Proteins", ingredientsIn("Meat & seafood")]],
+    protein: [["Protein recipes", recipesIn("Protein")], ["Main dishes", recipesIn("Breakfast", "Lunch", "Dinner")], ["Proteins", ingredientsIn("Meat & seafood")]],
     veggie: [["Veggies", ingredientsIn("Produce", "Frozen")], ["Side dishes", recipesIn("Side")]],
     side: [["Side dishes", recipesIn("Side")], ["Grains & more", ingredientsIn("Bakery & grains", "Canned & dry goods")]]
   };
@@ -2028,6 +2092,13 @@ function renderRecipes() {
         recipeIngredientChecks.set(selectedRecipe.id, checks);
       });
     });
+    detail.querySelectorAll("[data-open-sub-recipe]").forEach((button) => {
+      button.addEventListener("click", () => {
+        openRecipeId = button.dataset.openSubRecipe;
+        renderRecipes();
+        window.scrollTo({ top: 0 });
+      });
+    });
     setupIngredientMentions(detail);
     bindFavoriteButtons(detail);
     updateDataControls();
@@ -2181,7 +2252,7 @@ function recipeStatusMarkup(recipe, coverage = recipeStockCoverage(recipe)) {
 // Typed-in ingredients (and links to ingredients since deleted) carry no
 // nutrition or stock data, so flag the recipe until they are added to the list.
 function unlinkedIngredients(recipe) {
-  return (recipe.ingredients || []).filter((item) => item && (typeof item === "string" || !state.ingredients[item.key]));
+  return (recipe.ingredients || []).filter((item) => item && !isSubRecipeRow(item) && (typeof item === "string" || !state.ingredients[item.key]));
 }
 
 function unlinkedIngredientAlert(recipe) {
@@ -2244,9 +2315,7 @@ function scaledRecipe(recipe, factor) {
   const copy = {
     ...recipe,
     servings: Number(recipe.servings || 1) * factor,
-    ingredients: (recipe.ingredients || []).map((item) =>
-      typeof item === "string" ? scaleIngredientText(item, factor) : item && typeof item === "object" ? { ...item, quantity: Number(item.quantity || 0) * factor } : item
-    )
+    ingredients: (recipe.ingredients || []).map((item) => scaleRecipeRow(item, factor))
   };
   // Recipes without linked ingredients carry their nutrition as stored totals.
   nutrients.forEach((nutrient) => {
@@ -2367,6 +2436,7 @@ function recipeDetailMarkup(savedRecipe) {
         <ul class="ingredient-checklist">
           ${recipe.ingredients
             .map((ingredient, index) => {
+              if (isSubRecipeRow(ingredient)) return subRecipeChecklistItem(recipe, ingredient, index, checks, showStockFlags);
               const { amount, name } = recipeIngredientParts(ingredient);
               const stock = showStockFlags ? ingredientStockStatus(ingredient) : null;
               const flag = stock === "missing"
@@ -2401,6 +2471,43 @@ function recipeDetailMarkup(savedRecipe) {
         </details>
       </section>
     </div>`;
+}
+
+// A sub-recipe line checks off like any other, and opens to show its own
+// ingredients at the amount used (so ½× on the parent halves them too).
+function subRecipeChecklistItem(recipe, item, index, checks, showStockFlags) {
+  const subRecipe = recipeById(item.recipeId);
+  const { amount, name } = recipeIngredientParts(item);
+  let flag = "";
+  if (subRecipe && showStockFlags) {
+    // Coverage of just this line, looking through to the sub-recipe's ingredients.
+    const coverage = recipeStockCoverage({ id: recipe.id, ingredients: [item] });
+    if (coverage.total && !coverage.ready) {
+      flag = coverage.have || coverage.short
+        ? `<span class="ingredient-stock-flag is-short">${coverage.have} of ${coverage.total}</span>`
+        : '<span class="ingredient-stock-flag">Missing</span>';
+    }
+  }
+  const factor = subRecipe ? subRecipeFactor(item, subRecipe) : 0;
+  const rows = subRecipe ? (subRecipe.ingredients || []).map((row) => recipeIngredientParts(scaleRecipeRow(row, factor))) : [];
+  return `
+    <li class="sub-recipe-item">
+      <label>
+        <input type="checkbox" data-ingredient-check="${index}"${checks.has(String(index)) ? " checked" : ""} />
+        <span class="check-box" aria-hidden="true"></span>
+        <span class="ingredient-checklist-amount">${escapeHtml(amount)}</span>
+        <span class="ingredient-checklist-name">${escapeHtml(name)} <span class="sub-recipe-tag">Recipe</span></span>
+        ${flag}
+      </label>
+      ${subRecipe ? `
+        <details class="sub-recipe-details">
+          <summary>${icon("chevron-right")}<span>${rows.length} ingredient${rows.length === 1 ? "" : "s"}</span></summary>
+          <ul class="sub-recipe-rows">
+            ${rows.map((row) => `<li><span class="ingredient-checklist-amount">${escapeHtml(row.amount || "")}</span><span>${escapeHtml(row.name)}</span></li>`).join("")}
+          </ul>
+          <button class="text-button sub-recipe-open" type="button" data-open-sub-recipe="${escapeHtml(subRecipe.id)}">Open ${escapeHtml(subRecipe.name)} ${icon("arrow-right")}</button>
+        </details>` : ""}
+    </li>`;
 }
 
 // ---------------------------------------------------------------- add to plan
@@ -2725,6 +2832,10 @@ function recipeIngredientMention(item) {
     const amount = parsed.quantity ? `${formatQuantity(parsed.quantity)}${shownUnit ? ` ${shownUnit}` : ""}` : formatAmountsInText(item);
     return { name: parsed.name, amount };
   }
+  if (isSubRecipeRow(item)) {
+    const subRecipe = recipeById(item.recipeId);
+    return subRecipe ? { name: subRecipe.name, amount: subRecipeAmountText(item) } : null;
+  }
 
   const ingredient = state.ingredients[item.key] || item;
   if (!ingredient?.name) return null;
@@ -2889,18 +3000,28 @@ function roundTo(value, places) {
   return Math.round(Number(value || 0) * factor) / factor;
 }
 
-function recipeMacros(recipe) {
-  const catalogIngredients = catalogItems(recipe);
-  if (!catalogIngredients.length) return nutrientValues(recipe);
+// Sub-recipes add their own whole-batch macros times the share used. That
+// recurses rather than reading the flattened rows, so a sub-recipe that only has
+// stored totals (typed-in ingredients) still counts.
+function recipeMacros(recipe, trail = new Set()) {
+  const rows = recipe.ingredients?.filter((item) => item && typeof item === "object") || [];
+  if (!rows.length) return nutrientValues(recipe);
 
-  return catalogIngredients.reduce((totals, item) => {
+  const inside = new Set([...trail, recipe.id]);
+  return rows.reduce((totals, item) => {
+    if (isSubRecipeRow(item)) {
+      const subRecipe = recipeById(item.recipeId);
+      if (!subRecipe || inside.has(subRecipe.id)) return totals;
+      return addNutrients(totals, recipeMacros(subRecipe, inside), subRecipeFactor(item, subRecipe));
+    }
     const ingredient = state.ingredients[item.key] || item;
     return addNutrients(totals, ingredient, recipeItemServingCount(item, ingredient));
   }, emptyNutrients());
 }
 
+// Linked index ingredients, looking through sub-recipes.
 function catalogItems(recipe) {
-  return recipe.ingredients?.filter((item) => item && typeof item === "object") || [];
+  return flatRecipeIngredients(recipe).filter((item) => item && typeof item === "object");
 }
 
 function recipeContainers(recipe) {
@@ -2919,6 +3040,7 @@ function recipeIngredientText(item) {
 // from the name rather than pre-joined into one string.
 function recipeIngredientParts(item) {
   if (typeof item === "string") return splitLeadingAmount(formatAmountsInText(item));
+  if (isSubRecipeRow(item)) return { amount: subRecipeAmountText(item), name: recipeById(item.recipeId)?.name || "Deleted recipe" };
   const ingredient = state.ingredients[item.key] || item;
   const name = ingredient.name || "Ingredient";
   const amount = recipeIngredientAmountParts(item, ingredient);
@@ -2984,7 +3106,8 @@ function renderGroceries() {
   const groceries = new Map();
   const recipes = upcomingPlannedRecipes();
   recipes.forEach((recipe) => {
-    recipe.ingredients.forEach((ingredient) => {
+    // Sub-recipes are shopped for as their ingredients, never as one item.
+    flatRecipeIngredients(recipe).forEach((ingredient) => {
       const parsed = parseRecipeIngredient(ingredient);
       if (!parsed) return;
 
@@ -3130,6 +3253,7 @@ function linkDisplayUrl(url) {
 
 function parseRecipeIngredient(item) {
   if (typeof item === "string") return parseIngredient(item);
+  if (isSubRecipeRow(item)) return null;
   const ingredient = state.ingredients[item.key] || item;
   if (!ingredient?.name) return null;
 
@@ -4310,7 +4434,7 @@ function recipeIngredientUsage(item) {
 // ("salt to taste") are not counted - they should never block a recipe from
 // reading as makeable. A unit that cannot convert counts as short, never as have.
 function recipeStockCoverage(recipe) {
-  const statuses = (recipe.ingredients || []).map(ingredientStockStatus).filter(Boolean);
+  const statuses = flatRecipeIngredients(recipe).map(ingredientStockStatus).filter(Boolean);
   const coverage = { total: statuses.length, have: 0, short: 0, missing: 0, ready: false };
   statuses.forEach((status) => { coverage[status] += 1; });
   coverage.ready = coverage.total > 0 && coverage.have === coverage.total;
@@ -4344,7 +4468,7 @@ function deductRecipeFromStock(recipe) {
   const used = [];
   const skipped = [];
 
-  (recipe.ingredients || []).forEach((item) => {
+  flatRecipeIngredients(recipe).forEach((item) => {
     const usage = recipeIngredientUsage(item);
     if (!usage || usage.quantity <= 0) return;
 
@@ -4983,7 +5107,15 @@ function setupForms() {
     if (!requireCloudWrite()) return;
     const id = document.getElementById("recipe-form").dataset.editingId;
     const recipe = id ? recipeById(id) : null;
-    if (!recipe || !window.confirm(`Delete ${recipe.name}? It also comes off every planned meal.`)) return;
+    if (!recipe) return;
+    // Deleting a sub-recipe would quietly empty part of every recipe built on it,
+    // so it stays blocked until those recipes stop using it.
+    const parents = recipesUsing(id);
+    if (parents.length) {
+      showToast(`${recipe.name} is used in ${parents.map((item) => item.name).join(", ")}. Take it out of ${parents.length === 1 ? "that recipe" : "those recipes"} first.`, { tone: "error" });
+      return;
+    }
+    if (!window.confirm(`Delete ${recipe.name}? It also comes off every planned meal.`)) return;
     resetRecipeForm();
     deleteRecipe(id);
     openRecipeId = null;
@@ -5610,7 +5742,10 @@ function recipeFormLabelChoices() {
     const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
     const measure = row.querySelector(".recipe-ingredient-measure").value || "serving";
     const ingredient = state.ingredients[ingredientKey(name)];
-    const amount = !(quantity > 0) ? "" : ingredient
+    const subRecipe = recipeFormRowSubRecipe(row);
+    const amount = !(quantity > 0) ? "" : subRecipe
+      ? subRecipeAmountText({ quantity, measure })
+      : ingredient
       ? recipeIngredientAmount({ quantity, measure }, ingredient)
       : amountParts(quantity, measure === "serving" ? "" : measure).text;
     return { name, amount, complete: Boolean(name) && quantity > 0 };
@@ -5908,6 +6043,14 @@ function resetRecipeForm() {
 }
 
 function recipeIngredientFormValue(item) {
+  if (isSubRecipeRow(item)) {
+    return {
+      name: recipeById(item.recipeId)?.name || "",
+      quantity: Number(item.quantity || 1),
+      measure: item.measure === "batch" ? "batch" : "serving",
+      recipeId: item.recipeId
+    };
+  }
   if (typeof item === "string") {
     const parsed = parseIngredient(item);
     if (!parsed) return { name: item, quantity: 1, measure: "serving" };
@@ -6134,6 +6277,7 @@ function addRecipeIngredientRow(item = {}) {
   const row = document.createElement("div");
   row.className = "recipe-ingredient-row";
   const formValue = recipeIngredientFormValue(item);
+  if (formValue.recipeId) row.dataset.recipeId = formValue.recipeId;
   row.innerHTML = `
     ${dragHandleMarkup("Reorder ingredient")}
     <label class="recipe-ingredient-field recipe-ingredient-quantity-field">
@@ -6147,7 +6291,7 @@ function addRecipeIngredientRow(item = {}) {
     <div class="ingredient-picker">
       <label>
         <span class="visually-hidden">Ingredient</span>
-        <input class="recipe-ingredient-search" required placeholder="Search ingredients" autocomplete="off"
+        <input class="recipe-ingredient-search" required placeholder="Search ingredients or recipes" autocomplete="off"
           role="combobox" aria-expanded="false" aria-autocomplete="list" value="${escapeHtml(formValue.name)}" />
       </label>
       <span class="ingredient-flag" title="Not in your ingredient index" aria-hidden="true">!</span>
@@ -6162,7 +6306,11 @@ function addRecipeIngredientRow(item = {}) {
   bindIngredientPicker({
     input: search,
     results: row.querySelector(".ingredient-picker-results"),
-    onChoose: () => {
+    recipes: subRecipeCandidates,
+    onChoose: (choice) => {
+      // The id pins the choice, so a recipe sharing an ingredient's name still works.
+      if (choice?.recipeId) row.dataset.recipeId = choice.recipeId;
+      else delete row.dataset.recipeId;
       updateRecipeIngredientRow(row);
       refreshRecipeMacroPreview();
       quantity.focus();
@@ -6170,6 +6318,8 @@ function addRecipeIngredientRow(item = {}) {
   });
   const measure = row.querySelector(".recipe-ingredient-measure");
   search.addEventListener("input", () => {
+    // Typing over a chosen recipe's name lets go of it.
+    if (row.dataset.recipeId && recipeById(row.dataset.recipeId)?.name.toLowerCase() !== search.value.trim().toLowerCase()) delete row.dataset.recipeId;
     updateRecipeIngredientRow(row);
     refreshRecipeMacroPreview();
   });
@@ -6204,6 +6354,35 @@ function addRecipeIngredientRow(item = {}) {
 
 const maxIngredientSuggestions = 8;
 
+// Recipes the one being edited may use as sub-recipes: never itself, and never
+// one that already uses it (directly or deeper down), which would make a loop.
+function subRecipeCandidates() {
+  const editingId = document.getElementById("recipe-form")?.dataset.editingId || "";
+  return state.recipes.filter((recipe) => !editingId || (recipe.id !== editingId && !recipeIncludes(recipe, editingId)));
+}
+
+function recipeSuggestions(query, recipes) {
+  const text = String(query || "").trim().toLowerCase();
+  if (!text) return [];
+  const rank = (recipe) => (recipe.name.toLowerCase().startsWith(text) ? 0 : 1);
+  return recipes
+    .filter((recipe) => recipe.name.toLowerCase().includes(text))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+    .slice(0, 4);
+}
+
+// The editor row's chosen sub-recipe, if it holds one: pinned by id after a
+// pick, or an exact recipe name that no index ingredient shares.
+function recipeFormRowSubRecipe(row) {
+  const name = row.querySelector(".recipe-ingredient-search").value.trim().toLowerCase();
+  if (!name) return null;
+  const candidates = subRecipeCandidates();
+  const pinned = row.dataset.recipeId ? candidates.find((recipe) => recipe.id === row.dataset.recipeId) : null;
+  if (pinned && pinned.name.toLowerCase() === name) return pinned;
+  if (state.ingredients[ingredientKey(name)]) return null;
+  return candidates.find((recipe) => recipe.name.toLowerCase() === name) || null;
+}
+
 function ingredientSuggestions(query) {
   const all = Object.values(state.ingredients || {}).sort((a, b) => a.name.localeCompare(b.name));
   const text = String(query || "").trim().toLowerCase();
@@ -6218,7 +6397,9 @@ function ingredientSuggestions(query) {
 
 // A typed search box backed by the saved ingredients, replacing the native datalist
 // so suggestions are tappable, keyboard navigable and show serving and calories.
-function bindIngredientPicker({ input, results, onChoose }) {
+// `recipes` (optional) returns the recipes that may be offered too, tagged
+// "Recipe"; they only appear once something is typed.
+function bindIngredientPicker({ input, results, onChoose, recipes = null }) {
   if (!input || !results) return;
   let matches = [];
   let activeIndex = -1;
@@ -6232,7 +6413,9 @@ function bindIngredientPicker({ input, results, onChoose }) {
   const paint = () => {
     if (!matches.length) {
       results.innerHTML = `<p class="ingredient-picker-empty">${
-        Object.keys(state.ingredients || {}).length
+        recipes && input.value.trim()
+          ? "No ingredient or recipe matches. It will be saved as plain text without nutrition."
+          : Object.keys(state.ingredients || {}).length
           ? "No saved ingredient matches. It will be saved as plain text without nutrition."
           : "No saved ingredients yet. Add one on the Ingredients page."
       }</p>`;
@@ -6240,8 +6423,16 @@ function bindIngredientPicker({ input, results, onChoose }) {
     }
 
     results.innerHTML = matches
-      .map(
-        (ingredient, index) => `
+      .map((ingredient, index) => ingredient.recipeId
+        ? `
+        <button class="ingredient-option is-recipe" type="button" role="option" data-index="${index}"
+          aria-selected="${index === activeIndex}" ${index === activeIndex ? 'data-active="true"' : ""}>
+          <span class="ingredient-option-name">${escapeHtml(ingredient.name)} <span class="sub-recipe-tag">Recipe</span></span>
+          <span class="ingredient-option-meta">Serves ${escapeHtml(formatQuantity(Number(ingredient.servings || 1)))}<span class="nutrition-only"> \u00b7 ${formatMacro(
+          Math.round(ingredient.calories / Math.max(1, Number(ingredient.servings) || 1))
+        )} cal per serving</span></span>
+        </button>`
+        : `
         <button class="ingredient-option" type="button" role="option" data-index="${index}"
           aria-selected="${index === activeIndex}" ${index === activeIndex ? 'data-active="true"' : ""}>
           <span class="ingredient-option-name">${escapeHtml(ingredient.name)}</span>
@@ -6255,6 +6446,17 @@ function bindIngredientPicker({ input, results, onChoose }) {
 
   const open = () => {
     matches = ingredientSuggestions(input.value);
+    if (recipes) {
+      matches = [
+        ...matches,
+        ...recipeSuggestions(input.value, recipes()).map((recipe) => ({
+          recipeId: recipe.id,
+          name: recipe.name,
+          servings: recipe.servings,
+          calories: recipeMacros(recipe).calories
+        }))
+      ];
+    }
     activeIndex = -1;
     paint();
     results.hidden = false;
@@ -6312,8 +6514,29 @@ function bindIngredientPicker({ input, results, onChoose }) {
 
 function updateRecipeIngredientRow(row) {
   const name = row.querySelector(".recipe-ingredient-search").value;
-  const ingredient = state.ingredients[ingredientKey(name)];
   const select = row.querySelector(".recipe-ingredient-measure");
+  const subRecipe = recipeFormRowSubRecipe(row);
+  row.dataset.subRecipe = String(Boolean(subRecipe));
+  if (subRecipe) {
+    // Sub-recipes are measured in their own servings, or as a share of the batch.
+    const wanted = select.dataset.initialMeasure || select.value;
+    delete select.dataset.initialMeasure;
+    const measure = wanted === "batch" ? "batch" : "serving";
+    const optionsKey = `recipe|${subRecipe.id}`;
+    if (select.dataset.optionsKey !== optionsKey && (document.activeElement !== select || !select.options.length)) {
+      select.innerHTML = optionMarkup("serving", "Servings", measure) + optionMarkup("batch", "Whole recipe", measure);
+      select.dataset.optionsKey = optionsKey;
+    }
+    select.value = measure;
+    row.dataset.unlinked = "false";
+    const quantity = parseFractionInput(row.querySelector(".recipe-ingredient-quantity").value);
+    const servings = Math.max(1, Number(subRecipe.servings) || 1);
+    row.querySelector(".recipe-ingredient-serving").textContent = measure === "batch"
+      ? `Recipe · ${formatQuantity(roundTo(quantity, 3))} × the whole batch (serves ${formatQuantity(servings)})`
+      : `Recipe · ${formatQuantity(roundTo(quantity, 3))} of its ${formatQuantity(servings)} servings`;
+    return;
+  }
+  const ingredient = state.ingredients[ingredientKey(name)];
   const requestedMeasure = select.dataset.initialMeasure || select.value || "serving";
   delete select.dataset.initialMeasure;
   const serving = ingredient ? parseServing(ingredient.serving) : null;
@@ -6373,7 +6596,10 @@ function collectRecipeIngredients(allowIncomplete = false) {
       if (allowIncomplete) continue;
       return null;
     }
-    if (ingredient) {
+    const subRecipe = recipeFormRowSubRecipe(row);
+    if (subRecipe) {
+      ingredients.push({ recipeId: subRecipe.id, quantity, measure: measure === "batch" ? "batch" : "serving" });
+    } else if (ingredient) {
       ingredients.push({ key: ingredient.key, quantity, measure });
     } else {
       const unit = measure === "serving" ? "" : measure;
@@ -6389,6 +6615,10 @@ function collectRecipeIngredients(allowIncomplete = false) {
 
 function macrosForIngredientRows(items) {
   return items.reduce((totals, item) => {
+    if (isSubRecipeRow(item)) {
+      const subRecipe = recipeById(item.recipeId);
+      return subRecipe ? addNutrients(totals, recipeMacros(subRecipe), subRecipeFactor(item, subRecipe)) : totals;
+    }
     const ingredient = state.ingredients[item.key];
     if (!ingredient) return totals;
     return addNutrients(totals, ingredient, recipeItemServingCount(item, ingredient));

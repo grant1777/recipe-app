@@ -7,57 +7,16 @@ section. Move an item to **Done** (with the date) when it ships.
 
 ## Features
 
-### Sub-recipes (a recipe used as an ingredient)
-
-**Idea:** A recipe can be added to another recipe as one of its ingredients.
-For example, "Shepherd's Pie" lists "Mashed Potatoes", which is a recipe of its
-own, alongside Ground beef and Carrots.
-
-**What it should do**
-- In the recipe editor, the ingredient search offers your recipes as well as
-  index ingredients, marked so they're easy to tell apart (e.g. a small "Recipe"
-  tag).
-- The amount is measured in **servings of the sub-recipe** (e.g. "2 servings
-  Mashed Potatoes"), or as a fraction of the batch ("½ recipe").
-- **Recipe page:** the sub-recipe row links to that recipe. Ideally it can also
-  be expanded inline to show its own ingredients, scaled to the amount used.
-- **Nutrition:** the sub-recipe's per-serving macros roll up into the parent
-  recipe's totals.
-- **Groceries:** planning the parent recipe adds the sub-recipe's ingredients,
-  scaled, to the grocery list. The sub-recipe never appears there as one item.
-- **Pantry:** "Can make now" and "X of Y in stock" look through to the
-  sub-recipe's ingredients. "I made this" deducts them from stock.
-- **Scaling:** the ½× / 2× / 3× buttons on the parent also scale the
-  sub-recipe's share.
-- **Step labels:** step words can be labelled with the sub-recipe the same way
-  as any ingredient (e.g. "spread the {{Mashed Potatoes|mash}} on top").
-
-**Rules and edge cases**
-- No loops: a recipe can't include itself, directly or through another
-  sub-recipe.
-- Allow nesting? Decide whether only one level is allowed or deeper nesting too.
-  One level is much simpler.
-- Deleting a recipe that's used as a sub-recipe should warn first and list the
-  recipes that use it, the same way deleting an in-use ingredient is blocked.
-- Renaming a sub-recipe must not break the parents. Store the recipe **id**, not
-  its name.
-- Older data has no sub-recipe rows, so nothing needs migrating. Remember to
-  keep the new row type in `normalizeState` (see CLAUDE.md).
-
-**Open questions**
+### Sub-recipe follow-ups
+The sub-recipe feature shipped 2026-11-20 (nesting allowed, loops blocked,
+deleting a used recipe is blocked). Still open:
 - Should "I made this" on the parent ask whether you made the sub-recipe fresh,
-  or used some you already had?
+  or used some you already had? (Today it always deducts the sub-recipe's
+  ingredients.)
 - Should a sub-recipe be allowed to come from the pantry as a finished item
   (e.g. leftover mashed potatoes in stock)?
 - Should recipes be filterable to hide "component only" recipes (sauces, bases)
   from the main list?
-
-**Rough technical shape** (for whoever builds it)
-- Recipe ingredient rows gain a kind: `{ recipeId, quantity, measure: "serving" | "batch" }`
-  next to today's `{ key, quantity, measure }`.
-- Add one helper that expands a recipe into its flat ingredient list (recursing
-  into sub-recipes with a scale factor). Groceries, stock coverage, macros and
-  "I made this" should all use it, so they stay consistent.
 
 ### Auto-fill ingredient photo from the Walmart link
 When a Walmart product URL is added and the photo is empty, grab the listing's
@@ -96,6 +55,10 @@ needs approval and keys.
 
 ## Done
 
+- 2026-11-20: Sub-recipes: a recipe can be an ingredient of another (servings or
+  whole recipe), rolled into groceries, nutrition, pantry coverage and "I made
+  this". New "Protein" recipe category, shown as its own "Protein recipes"
+  section when building a plate's protein.
 - 2026-11-17: Icons redone with Lucide (shadcn's icon set): tab bar, heart, pencil, drag grip, arrows, chevrons, close, checks.
 - 2026-11-17: Short invite codes (`XXXX-XXXX`). Code is done; needs the rules
   deploy above.

@@ -10001,3 +10001,91 @@ input[type="checkbox"] {
 .meal-picker-foot .primary-button {
   width: 100%;
 }
+
+/* ---- Sub-recipes -------------------------------------------------------------
+   A recipe used as another recipe's ingredient: a small "Recipe" tag beside its
+   name, and on the recipe page a collapsed list of its own (scaled) ingredients. */
+.sub-recipe-tag {
+  background: var(--pink-soft);
+  border-radius: 999px;
+  color: var(--pink-ink);
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  margin-left: 4px;
+  padding: 1px 7px;
+  vertical-align: 0.1em;
+  white-space: nowrap;
+}
+
+.ingredient-checklist .sub-recipe-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.ingredient-checklist .sub-recipe-item > label {
+  border-bottom: 0;
+}
+
+/* Lines up under the amount column (checkbox + gap). */
+.sub-recipe-details {
+  padding: 0 0 10px 36px;
+}
+
+.sub-recipe-details > summary {
+  align-items: center;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 600;
+  gap: 4px;
+  list-style: none;
+  min-height: 32px;
+}
+
+.sub-recipe-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sub-recipe-details > summary .icon {
+  transition: transform 0.15s;
+}
+
+.sub-recipe-details[open] > summary .icon {
+  transform: rotate(90deg);
+}
+
+.sub-recipe-rows {
+  border-left: 2px solid var(--line);
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 2px 0 2px 12px;
+}
+
+.sub-recipe-rows li {
+  display: grid;
+  font-size: 0.9rem;
+  gap: 10px;
+  grid-template-columns: 70px minmax(0, 1fr);
+}
+
+.sub-recipe-open {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+@media (max-width: 680px) {
+  .sub-recipe-details {
+    padding-left: 38px;
+  }
+
+  .sub-recipe-rows li {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+}
